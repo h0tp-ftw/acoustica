@@ -1,0 +1,48 @@
+# Alarm Profile: CO Sensor
+name: "CO Sensor"
+confirmation_cycles: 2
+segments:
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.1
+      max: 0.15
+  - type: "silence"
+    duration:
+      min: 0.01
+      max: 0.1
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.1
+      max: 0.15
+  - type: "silence"
+    duration:
+      min: 0.01
+      max: 0.1
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.1
+      max: 0.15
+  - type: "silence"
+    duration:
+      min: 0.01
+      max: 0.1
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.1
+      max: 0.15
+  - type: "silence"
+    duration:
+      min: 4
+      max: 6

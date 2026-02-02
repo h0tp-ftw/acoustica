@@ -1,0 +1,37 @@
+# Alarm Profile: Smoke_Alarm
+name: "Smoke_Alarm"
+confirmation_cycles: 2
+segments:
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.5
+      max: 0.7
+  - type: "silence"
+    duration:
+      min: 0.25
+      max: 0.5
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.5
+      max: 0.7
+  - type: "silence"
+    duration:
+      min: 0.25
+      max: 0.5
+  - type: "tone"
+    frequency:
+      min: 3150
+      max: 3350
+    duration:
+      min: 0.5
+      max: 0.7
+  - type: "silence"
+    duration:
+      min: 1
+      max: 3

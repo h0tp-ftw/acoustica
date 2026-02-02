@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  # Service for running the Engine/Runner
+  engine:
+    build: .
+    container_name: acoustic-engine
+    volumes:
+      - .:/app
+    # To use the host microphone on Linux, we need to pass the device.
+    # On Mac/Windows, accessing the mic from Docker is difficult/experimental.
+    devices:
+      - /dev/snd:/dev/snd
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python -m acoustic_engine.runner --help
+
+  # Service for the Web Tuner
+  tuner:
+    build: .
+    container_name: acoustic-tuner
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    # Tuner usually works with files, but if it needs recording:
+    devices:
+      - /dev/snd:/dev/snd
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python -m acoustic_engine.tuner
+
+  # Service for running tests
+  tests:
+    build: .
+    container_name: acoustic-tests
+    volumes:
+      - .:/app
+    command: pytest tests/ -v

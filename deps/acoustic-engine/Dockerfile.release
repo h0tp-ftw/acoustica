@@ -1,0 +1,17 @@
+# Slim Dockerfile for users who just want to run the engine (no source code needed)
+FROM python:3.11-slim-bookworm
+
+# Install system audio dependencies (required for PyAudio)
+RUN apt-get update && apt-get install -y \
+    portaudio19-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the engine directly from PyPI
+RUN pip install --no-cache-dir acoustic-engine[tuner]
+
+# Create a working directory for configs/logs
+WORKDIR /app
+
+# Default command
+CMD ["python", "-m", "acoustic_engine.runner", "--help"]

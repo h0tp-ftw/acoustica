@@ -1,0 +1,40 @@
+# Global Acoustic Alarm Engine Configuration
+# This file consolidates system, audio, and profile settings in one place.
+
+# System Configuration
+system:
+  log_level: "INFO" # DEBUG, INFO, WARNING, ERROR
+  # log_file: "engine.log"  # Optional: Log to file
+
+# Audio Capture Settings
+audio:
+  sample_rate: 44100
+  chunk_size: 4096
+  channels: 1
+  # device_index: 2  # Optional: Specific input device index
+
+# Alarm Profile Definitions
+# You can define profiles inline OR include them from external files
+profiles:
+  # Option 1: Inline Profile Definition
+  - name: "CO Detector T4"
+    confirmation_cycles: 2
+    resolution: # Optional per-profile resolution override
+      min_tone_duration: 0.1
+      dropout_tolerance: 0.15
+    segments:
+      - type: "tone"
+        frequency:
+          min: 3150
+          max: 3400
+        duration:
+          min: 0.15
+          max: 1.8
+      - type: "silence"
+        duration:
+          min: 2.5
+          max: 7.0
+
+  # Option 2: Include external profile files (supports globs)
+  # - include: "profiles/*.yaml"
+  # - include: "profiles/smoke_alarm.yaml"

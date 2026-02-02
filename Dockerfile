@@ -31,10 +31,15 @@ WORKDIR /app
 # Note: Installing numpy/scipy via pip on Alpine can be slow,
 # but it's the only way to ensure they land in the correct Python environment
 COPY requirements.txt .
+COPY deps/ ./deps/
+
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary numpy==1.26.4 websockets==12.0
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary pyaudio==0.2.14
 # Scipy is the heaviest, we try to install it last
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary scipy==1.12.0
+
+# Install acoustic-engine (bundled dependency)
+RUN python3 -m pip install --break-system-packages --no-cache-dir ./deps/acoustic-engine
 
 # Copy application code
 COPY detector/ ./detector/

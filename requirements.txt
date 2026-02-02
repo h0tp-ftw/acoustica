@@ -2,3 +2,5 @@ pyaudio==0.2.14
 numpy==1.26.4
 scipy==1.12.0
 websockets==12.0
+PyYAML>=6.0
+-e ./deps/acoustic-engine

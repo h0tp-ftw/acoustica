@@ -1,0 +1,53 @@
+# Example Alarm Profile: Standard Smoke Detector (T3 Pattern)
+# 3 beeps at ~3kHz with short pauses, repeated twice for confirmation
+
+name: "SmokeAlarm_T3"
+confirmation_cycles: 2
+reset_timeout: 10.0
+
+segments:
+  # Beep 1
+  - type: "tone"
+    frequency:
+      min: 2900
+      max: 3200
+    duration:
+      min: 0.4
+      max: 0.6
+    min_magnitude: 0.1
+
+  # Pause 1
+  - type: "silence"
+    duration:
+      min: 0.1
+      max: 0.3
+
+  # Beep 2
+  - type: "tone"
+    frequency:
+      min: 2900
+      max: 3200
+    duration:
+      min: 0.4
+      max: 0.6
+
+  # Pause 2
+  - type: "silence"
+    duration:
+      min: 0.1
+      max: 0.3
+
+  # Beep 3
+  - type: "tone"
+    frequency:
+      min: 2900
+      max: 3200
+    duration:
+      min: 0.4
+      max: 0.6
+
+  # Long pause (inter-cycle)
+  - type: "silence"
+    duration:
+      min: 0.8
+      max: 1.5

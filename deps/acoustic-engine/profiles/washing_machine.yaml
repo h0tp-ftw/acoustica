@@ -1,0 +1,52 @@
+# Example Alarm Profile: Washing Machine End Cycle
+# Multi-frequency melody pattern
+
+name: "WashingMachine_EndCycle"
+confirmation_cycles: 1
+reset_timeout: 15.0
+
+segments:
+  # Note 1 (Low)
+  - type: "tone"
+    frequency:
+      min: 800
+      max: 900
+    duration:
+      min: 0.3
+      max: 0.5
+
+  # Short pause
+  - type: "silence"
+    duration:
+      min: 0.05
+      max: 0.15
+
+  # Note 2 (Mid)
+  - type: "tone"
+    frequency:
+      min: 1000
+      max: 1100
+    duration:
+      min: 0.3
+      max: 0.5
+
+  # Short pause
+  - type: "silence"
+    duration:
+      min: 0.05
+      max: 0.15
+
+  # Note 3 (High)
+  - type: "tone"
+    frequency:
+      min: 1200
+      max: 1400
+    duration:
+      min: 0.5
+      max: 0.8
+
+  # End pause
+  - type: "silence"
+    duration:
+      min: 1.0
+      max: 3.0

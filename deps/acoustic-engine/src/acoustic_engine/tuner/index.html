@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Record, analyze, and generate alarm patterns with the Alarm Audio Tuner. A powerful tool for acoustic alarm configuration."
+    />
+    <title>Alarm Audio Tuner</title>
+
+    <!-- Fonts: Inter for UI, JetBrains Mono for code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- Auto-Tune Questionnaire Modal -->
+    <div id="questionnaireModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content questionnaire-modal">
+        <div class="modal-header">
+          <h2>🎯 Auto-Tune Setup</h2>
+          <p class="modal-subtitle">Answer a few questions to improve detection accuracy</p>
+        </div>
+        
+        <div class="questionnaire-body">
+          <div class="question-group">
+            <label class="question-label">Is this a repeating pattern?</label>
+            <p class="question-hint">Most alarms repeat the same sequence multiple times</p>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="isRepeating" value="yes" checked />
+                <span class="radio-custom"></span>
+                Yes, it repeats
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="isRepeating" value="no" />
+                <span class="radio-custom"></span>
+                No, single occurrence
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="isRepeating" value="unsure" />
+                <span class="radio-custom"></span>
+                Not sure
+              </label>
+            </div>
+          </div>
+
+          <div class="question-group">
+            <label class="question-label">Are all beeps the same pitch?</label>
+            <p class="question-hint">Some alarms have varying frequencies</p>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="samePitch" value="same" checked />
+                <span class="radio-custom"></span>
+                Same pitch
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="samePitch" value="different" />
+                <span class="radio-custom"></span>
+                Different pitches
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="samePitch" value="unsure" />
+                <span class="radio-custom"></span>
+                Not sure
+              </label>
+            </div>
+          </div>
+
+          <div class="question-group" id="pitchDetailsGroup" style="display: none;">
+            <label class="question-label">Which beeps have different pitches?</label>
+            <p class="question-hint">Describe the pitch variation pattern</p>
+            <select id="pitchPattern">
+              <option value="alternating">Alternating high/low</option>
+              <option value="ascending">Ascending (low to high)</option>
+              <option value="descending">Descending (high to low)</option>
+              <option value="random">Irregular/random</option>
+            </select>
+          </div>
+
+          <div class="question-group">
+            <label class="question-label">How many beeps per cycle?</label>
+            <p class="question-hint">Count the beeps before a long pause (e.g., T3 = 3, T4 = 4)</p>
+            <div class="beep-count-row">
+              <input type="number" id="beepCount" min="1" max="10" value="" placeholder="e.g., 3" />
+              <label class="checkbox-inline">
+                <input type="checkbox" id="beepCountUnsure" />
+                Not sure
+              </label>
+            </div>
+          </div>
+
+          <div class="question-group">
+            <label class="question-label">Is there a long pause between cycles?</label>
+            <p class="question-hint">A noticeable gap before the pattern repeats</p>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="hasLongPause" value="yes" checked />
+                <span class="radio-custom"></span>
+                Yes
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="hasLongPause" value="no" />
+                <span class="radio-custom"></span>
+                No
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="hasLongPause" value="unsure" />
+                <span class="radio-custom"></span>
+                Not sure
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="skipQuestionnaireBtn" class="btn btn-secondary">Skip & Auto-Detect</button>
+          <button id="startAnalysisBtn" class="btn btn-primary">🔍 Start Analysis</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- A/B Comparison Indicator -->
+    <div id="abCompareIndicator" class="ab-compare-indicator" style="display: none;">
+      <div class="ab-label" id="abLabel">Playing: Original</div>
+      <div class="ab-progress">
+        <div class="ab-progress-bar" id="abProgressBar"></div>
+      </div>
+    </div>
+
+    <div class="app-container">
+      <header class="app-header">
+        <h1><span class="icon">🎵</span> Alarm Audio Tuner</h1>
+        <p class="subtitle">
+          Record, analyze, and generate alarm sound patterns with precision
+        </p>
+      </header>
+
+      <main class="main-content">
+        <!-- Left Panel: Audio Input & Visualization -->
+        <section class="panel audio-panel">
+          <h2>Audio Input</h2>
+
+          <div class="controls-row">
+            <button id="recordBtn" class="btn btn-record">
+              <span class="icon">⏺</span> Record
+            </button>
+            <button id="stopBtn" class="btn btn-stop" disabled>
+              <span class="icon">⏹</span> Stop
+            </button>
+            <button id="playbackBtn" class="btn btn-play" disabled>
+              <span class="icon">▶</span> Playback
+            </button>
+            <button id="analyzeBtn" class="btn btn-analyze" disabled>
+              <span class="icon">✨</span> Auto-Tune
+            </button>
+          </div>
+
+          <!-- Upload/Download Row -->
+          <div class="controls-row controls-row-secondary">
+            <label class="btn btn-upload">
+              <span class="icon">📁</span> Upload Audio
+              <input type="file" id="uploadInput" accept="audio/*" hidden />
+            </label>
+            <button id="downloadBtn" class="btn btn-download" disabled>
+              <span class="icon">💾</span> Download Recording
+            </button>
+          </div>
+
+          <div class="visualization-container">
+            <h3>Audiogram <span class="analysis-hint">(click and drag to select region for cropping)</span></h3>
+            <canvas id="audiogramCanvas" width="600" height="80"></canvas>
+            <div class="crop-controls" id="cropControls" style="display: none;">
+              <span id="cropRange">Selected: 0.0s - 0.0s</span>
+              <button id="cropBtn" class="btn btn-crop">✂️ Crop to Selection</button>
+              <button id="clearCropBtn" class="btn btn-clear-crop">✕ Clear</button>
+            </div>
+
+            <h3>
+              Frequency Timeline
+              <span class="analysis-hint">(hover for exact values)</span>
+            </h3>
+            <div class="zoom-controls">
+              <button id="zoomInBtn" class="btn btn-zoom" title="Zoom In">🔍+</button>
+              <button id="zoomOutBtn" class="btn btn-zoom" title="Zoom Out">🔍−</button>
+              <button id="zoomResetBtn" class="btn btn-zoom" title="Reset Zoom">↺</button>
+              <span id="zoomLevel" class="zoom-level">100%</span>
+            </div>
+            <div class="frequency-timeline-wrapper" id="frequencyTimelineWrapper">
+              <canvas id="frequencyTimelineCanvas" width="600" height="160"></canvas>
+              <div id="freqTooltip" class="freq-tooltip" style="display: none;"></div>
+            </div>
+
+            <h3>Detected Events</h3>
+            <canvas id="eventsCanvas" width="600" height="100"></canvas>
+            
+            <!-- A/B Comparison Controls -->
+            <div class="ab-compare-section" id="abCompareSection" style="display: none;">
+              <h3>Preview & Compare</h3>
+              <div class="ab-controls-row">
+                <button id="previewDetectedBtn" class="btn btn-preview" disabled>
+                  <span class="icon">▶</span> Preview Detected
+                </button>
+                <button id="abCompareBtn" class="btn btn-compare" disabled>
+                  <span class="icon">⚡</span> A/B Compare
+                </button>
+              </div>
+              <div class="ab-timeline" id="abTimeline">
+                <div class="ab-track ab-track-original">
+                  <span class="ab-track-label">Original</span>
+                  <div class="ab-track-bar" id="originalTrackBar"></div>
+                </div>
+                <div class="ab-track ab-track-detected">
+                  <span class="ab-track-label">Detected</span>
+                  <div class="ab-track-bar" id="detectedTrackBar"></div>
+                </div>
+              </div>
+              <p class="ab-hint">Compare the original recording with the detected pattern to verify accuracy</p>
+            </div>
+          </div>
+
+          <!-- Frequency Query Section -->
+          <div class="frequency-query-section">
+            <h3>Frequency Query</h3>
+            <div class="query-controls">
+              <label>
+                Target Frequency (Hz)
+                <input
+                  type="number"
+                  id="queryFrequency"
+                  value="3000"
+                  min="20"
+                  max="20000"
+                  step="10"
+                />
+              </label>
+              <label>
+                Tolerance (±Hz)
+                <input
+                  type="number"
+                  id="queryTolerance"
+                  value="100"
+                  min="10"
+                  max="500"
+                  step="10"
+                />
+              </label>
+              <button id="queryBtn" class="btn btn-query" disabled>
+                <span class="icon">🔍</span> Query
+              </button>
+            </div>
+            <div id="queryResults" class="query-results">
+              <span class="placeholder"
+                >Record audio and click Query to analyze frequency
+                presence</span
+              >
+            </div>
+          </div>
+
+          <!-- Auto-Tune Settings Section -->
+          <div class="analysis-settings-section">
+            <h3>Auto-Tune Settings</h3>
+            <div class="settings-row">
+              <label>
+                Silence Detection
+                <select id="silenceMode">
+                  <option value="auto">Auto-detect noise floor</option>
+                  <option value="manual">Manual threshold</option>
+                </select>
+              </label>
+              <div class="range-control" id="silenceThresholdControl" style="display: none; flex: 1;">
+                 <label>Threshold: <span id="silenceThresholdValue">0.03</span></label>
+                 <input type="range" id="silenceThreshold" min="0.01" max="0.2" step="0.01" value="0.03" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="patternRecognition" checked />
+                Group similar patterns (T3/T4 detection)
+              </label>
+            </div>
+            
+            <div id="patternInfo" class="pattern-info" style="display: none;">
+                <!-- Pattern detection results -->
+            </div>
+            
+          </div>
+
+          <!-- Analysis Settings Section -->
+          <div class="analysis-settings-section">
+            <h3>Spectrogram Settings</h3>
+            <div class="settings-row">
+              <label>
+                Resolution
+                <select id="resolutionSelect">
+                  <option value="4096">Low (~93ms) - Better for noisy environments</option>
+                  <option value="2048" selected>Standard (~46ms) - Recommended</option>
+                  <option value="1024">High (~23ms) - For fast patterns</option>
+                  <option value="512">Ultra (~12ms) - Maximum detail</option>
+                </select>
+              </label>
+              <button id="reanalyzeBtn" class="btn btn-reanalyze" disabled>
+                🔄 Re-analyze
+              </button>
+            </div>
+            <p class="settings-hint">
+              Higher resolution detects shorter sounds but may be more sensitive to noise.
+              After changing, click Re-analyze to update the visualizations.
+            </p>
+          </div>
+
+          <div class="status-bar">
+            <span id="statusText">Ready to record</span>
+            <span id="durationText">0.0s</span>
+          </div>
+        </section>
+
+        <!-- Right Panel: Ruleset Editor & Generator -->
+        <section class="panel ruleset-panel">
+          <h2>Alarm Profile</h2>
+
+          <div class="profile-form">
+            <label>
+              Profile Name
+              <input
+                type="text"
+                id="profileName"
+                value="NewAlarm"
+                placeholder="Enter profile name..."
+              />
+            </label>
+
+            <label>
+              Confirmation Cycles
+              <input
+                type="number"
+                id="confirmCycles"
+                value="2"
+                min="1"
+                max="10"
+              />
+            </label>
+          </div>
+
+          <h3>Segments (Pattern Definition)</h3>
+          <div class="editor-toolbar">
+              <div class="toolbar-group">
+                  <button id="undoBtn" class="toolbar-btn" title="Undo" disabled>↩ Undo</button>
+                  <button id="redoBtn" class="toolbar-btn" title="Redo" disabled>↪ Redo</button>
+              </div>
+              <div class="toolbar-group">
+                  <button id="mergeBtn" class="toolbar-btn" title="Merge selected segments">⫚⫛ Merge</button>
+                  <button id="splitBtn" class="toolbar-btn" title="Split selected segment">✂ Split</button>
+              </div>
+          </div>
+          <div id="segmentList" class="segment-list">
+            <!-- Segments added dynamically -->
+          </div>
+          <button id="addSegmentBtn" class="btn btn-add">+ Add Segment</button>
+
+          <div class="actions-row">
+            <button id="generateSoundBtn" class="btn btn-generate">
+              🔊 Generate Sample Sound
+            </button>
+            <button id="exportConfigBtn" class="btn btn-export">
+              📋 Export Config
+            </button>
+          </div>
+
+          <h3>Extracted Config (YAML)</h3>
+          <pre id="configOutput" class="config-output">
+# Define segments above to generate config</pre
+          >
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <p>Universal Alarm Engine Tuner v1.1 — Crafted with care</p>
+      </footer>
+    </div>
+
+    <script src="audio-engine.js"></script>
+    <script src="visualizer.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

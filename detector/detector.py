@@ -11,12 +11,12 @@ import time
 import logging
 from typing import Callable, Optional, List, Union
 
-# New Universal Engine Components
-from detector.models import AlarmProfile, Range, Segment
-from detector.dsp import SpectralMonitor
-from detector.generator import EventGenerator
-from detector.matcher import SequenceMatcher
-from detector.events import PatternMatchEvent
+# New Universal Engine Components (using bundled acoustic-engine)
+from acoustic_engine.models import AlarmProfile, Range, Segment
+from acoustic_engine.processing.dsp import SpectralMonitor
+from acoustic_engine.analysis.generator import EventGenerator
+from acoustic_engine.analysis.matcher import SequenceMatcher
+from acoustic_engine.events import PatternMatchEvent
 
 # Legacy config import
 from detector.config import DetectorProfile
