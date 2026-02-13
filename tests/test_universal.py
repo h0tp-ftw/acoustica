@@ -6,7 +6,7 @@ Generates synthetic audio patterns to test matching logic.
 import numpy as np
 import logging
 from detector.detector import PatternDetector
-from detector.models import AlarmProfile, Segment, Range
+from acoustic_alarm_engine.models import AlarmProfile, Segment, Range
 
 # Configure logging to stdout
 logging.basicConfig(level=logging.DEBUG, format="%(message)s")
