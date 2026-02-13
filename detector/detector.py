@@ -11,12 +11,12 @@ import time
 import logging
 from typing import Callable, Optional, List, Union
 
-# New Universal Engine Components
-from detector.models import AlarmProfile, Range, Segment
-from detector.dsp import SpectralMonitor
-from detector.generator import EventGenerator
-from detector.matcher import SequenceMatcher
-from detector.events import PatternMatchEvent
+# New Universal Engine Components (from external library)
+from acoustic_alarm_engine.models import AlarmProfile, Range, Segment
+from acoustic_alarm_engine.dsp import SpectralMonitor
+from acoustic_alarm_engine.generator import EventGenerator
+from acoustic_alarm_engine.matcher import SequenceMatcher
+from acoustic_alarm_engine.events import PatternMatchEvent
 
 # Legacy config import
 from detector.config import DetectorProfile
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class PatternDetector:
-    """Acoustic alarm detector using the Universal Alarm Engine."""
+    """Acoustic alarm detector using the external Acoustic Alarm Engine."""
 
     def __init__(
         self,
@@ -79,7 +79,7 @@ class PatternDetector:
         self.current_time = 0.0
 
         logger.info(
-            f"Universal Detector [{self.name}] initialized with {len(self.profiles)} profiles."
+            f"✅ Acoustic Engine initialized [{self.name}] with {len(self.profiles)} profile(s)."
         )
 
     def _convert_legacy_profile(self, p: DetectorProfile) -> AlarmProfile:
@@ -87,7 +87,8 @@ class PatternDetector:
         segments = []
 
         # We need to construct [Tone, Silence] * N
-        for _ in range(p.beep_count):
+        # Most alarms are T3/T4 which repeat a pattern
+        for i in range(p.beep_count):
             # Add Tone Step
             segments.append(
                 Segment(
@@ -101,12 +102,14 @@ class PatternDetector:
                 )
             )
             # Add Silence Step (Inter-beep pause)
-            segments.append(
-                Segment(
-                    type="silence",
-                    duration=Range(p.pause_duration_min, p.pause_duration_max),
+            # Don't add silence after the last beep if it's meant to be the end of pattern
+            if i < p.beep_count - 1:
+                segments.append(
+                    Segment(
+                        type="silence",
+                        duration=Range(p.pause_duration_min, p.pause_duration_max),
+                    )
                 )
-            )
 
         return AlarmProfile(
             name=p.name,
@@ -143,15 +146,14 @@ class PatternDetector:
     def _trigger_alarm(self, match: PatternMatchEvent) -> None:
         """Trigger alarm detection."""
         # Only trigger if not already active to avoid spamming callbacks
-        # But we DO want to log every match cycle usually?
-        logger.info(f"MATCH: {match.profile_name} (Cycle {match.cycle_count})")
+        logger.info(f"🔔 MATCH: {match.profile_name} (Cycle {match.cycle_count})")
 
         if not self.alarm_active:
             logger.critical("=" * 60)
             logger.critical(
-                f"🚨 UNIVERSAL ENGINE: [{match.profile_name.upper()}] ALARM ACTIVE! 🚨"
+                f"🚨 ALARM DETECTED: [{match.profile_name.upper()}] 🚨"
             )
-            logger.critical(f"Timestamp: {match.timestamp:.2f}s")
+            logger.critical(f"Confidence: High | Time: {time.strftime('%H:%M:%S')}")
             logger.critical("=" * 60)
 
             self.alarm_active = True
@@ -162,9 +164,10 @@ class PatternDetector:
             import threading
 
             def clear():
+                # Allow 10 seconds for the alarm to be "cleared" if no more patterns match
                 time.sleep(10)
                 if self.alarm_active:
-                    logger.info(f"[{self.name}] Auto-clearing alarm state.")
+                    logger.info(f"[{self.name}] Pattern lost. Resetting alarm state.")
                     self.alarm_active = False
                     if self.on_detection:
                         self.on_detection(False)

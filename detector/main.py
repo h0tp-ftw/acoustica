@@ -125,8 +125,10 @@ class DetectorApp:
 
         try:
             self.listener.start()
+        except KeyboardInterrupt:
+            logger.info("Shutdown requested by user")
         except Exception as e:
-            logger.error(f"Error in main loop: {e}", exc_info=True)
+            logger.error(f"FATAL: Error in main loop: {e}", exc_info=True)
         finally:
             self.cleanup()
 
