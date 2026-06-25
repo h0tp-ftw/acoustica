@@ -1,159 +1,89 @@
-"""Main application entry point.
+"""Add-on entry point: wire add-on options into the acoustic engine.
 
-Orchestrates the three-part architecture:
-- Listener: Audio capture
-- Detector: Pattern recognition
-- Sensor: Home Assistant integration
+Flow: read options -> build AlarmProfiles -> run a ParallelEngine on the mic ->
+each confirmed detection is pushed to Home Assistant by the HABridge.
+
+The engine owns audio capture, DSP, and matching; we just connect it to Home
+Assistant. Run with ``python3 -m detector.main``.
 """
 
 import logging
-import sys
 import signal
-from typing import List
+import sys
 
-from config import DetectorConfig, AudioSettings
-from listener import AudioListener, AudioConfig
-from detector import PatternDetector
-from sensor import SensorManager, SensorProfile
+from acoustic_engine.parallel_engine import ParallelEngine
 
-# Configure logging
+from detector.config import load_app_config
+from detector.ha_bridge import HABridge
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("acoustic-addon")
 
 
-class DetectorApp:
-    """Main application orchestrator."""
+def main() -> None:
+    config = load_app_config()
 
-    def __init__(self):
-        """Initialize the application."""
-        self.config: DetectorConfig = None
-        self.listener: AudioListener = None
-        self.detectors: List[PatternDetector] = []
-        self.sensor_manager: SensorManager = None
-        self.running = False
+    if config.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("acoustic_engine").setLevel(logging.DEBUG)
 
-    def setup(self) -> bool:
-        """Initialize all components.
+    logger.info("=" * 60)
+    logger.info("Acoustic Alarm Detector add-on")
+    logger.info("=" * 60)
 
-        Returns:
-            True if setup succeeded, False otherwise
-        """
-        # Load configuration
-        self.config = DetectorConfig.from_environment()
-        self.config.log_config()
-
-        # Create sensor profiles from detector profiles
-        sensor_profiles = [
-            SensorProfile(
-                name=p.name,
-                device_class=p.device_class,
-            )
-            for p in self.config.profiles
-        ]
-
-        # Initialize Sensor Manager (HA communication)
-        self.sensor_manager = SensorManager(
-            device_name=self.config.device_name,
-            profiles=sensor_profiles,
+    if not config.detectors:
+        logger.error(
+            "No usable detectors configured. Add at least one detector with a "
+            "'preset', 'profile', or 'learn' source in the add-on options."
         )
-        if not self.sensor_manager.setup():
-            logger.warning(
-                "⚠️ Sensor manager setup failed - will retry on alarm detection"
-            )
-
-        # Initialize Detectors (one per profile)
-        for profile in self.config.profiles:
-            # Create detection callback that routes to sensor manager
-            callback = self.sensor_manager.create_detection_callback(profile.name)
-
-            detector = PatternDetector(
-                profile=profile,
-                sample_rate=self.config.audio.sample_rate,
-                chunk_size=self.config.audio.chunk_size,
-                on_detection=callback,
-            )
-            self.detectors.append(detector)
-
-        logger.info(f"✅ Created {len(self.detectors)} detector(s)")
-
-        # Initialize Listener (audio capture)
-        audio_config = AudioConfig(
-            sample_rate=self.config.audio.sample_rate,
-            chunk_size=self.config.audio.chunk_size,
-            channels=self.config.audio.channels,
-            device_index=self.config.audio.device_index,
-        )
-
-        self.listener = AudioListener(
-            config=audio_config,
-            on_audio_chunk=self._on_audio_chunk,
-        )
-
-        if not self.listener.setup():
-            logger.error("❌ Failed to initialize audio listener")
-            return False
-
-        logger.info("✅ Audio listener initialized")
-
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
-
-        return True
-
-    def _on_audio_chunk(self, audio_chunk) -> None:
-        """Callback for processing audio chunks through all detectors."""
-        for detector in self.detectors:
-            detector.process(audio_chunk)
-
-    def _signal_handler(self, signum, frame) -> None:
-        """Handle shutdown signals."""
-        logger.info(f"Received signal {signum}. Shutting down...")
-        self.running = False
-        self.listener.stop()
-
-    def run(self) -> None:
-        """Start the detection loop."""
-        self.running = True
-        logger.info("=" * 50)
-        logger.info("🎤 ACOUSTIC ALARM DETECTOR - RUNNING")
-        logger.info("=" * 50)
-
-        try:
-            self.listener.start()
-        except KeyboardInterrupt:
-            logger.info("Shutdown requested by user")
-        except Exception as e:
-            logger.error(f"FATAL: Error in main loop: {e}", exc_info=True)
-        finally:
-            self.cleanup()
-
-    def cleanup(self) -> None:
-        """Clean up all resources."""
-        logger.info("Cleaning up resources...")
-
-        if self.listener:
-            self.listener.cleanup()
-
-        if self.sensor_manager:
-            self.sensor_manager.cleanup()
-
-        logger.info("✅ Shutdown complete")
-
-
-def main():
-    """Entry point."""
-    app = DetectorApp()
-
-    if not app.setup():
-        logger.error("Setup failed. Exiting.")
         sys.exit(1)
 
-    app.run()
+    for spec in config.detectors:
+        logger.info(
+            "Detector: %r [device_class=%s, %d segments, %d cycle(s)]",
+            spec.profile.name,
+            spec.device_class,
+            len(spec.profile.segments),
+            spec.profile.confirmation_cycles,
+        )
+    logger.info(
+        "Audio: %d Hz, device=%s | hold=%.0fs",
+        config.audio.sample_rate,
+        config.audio.device_index if config.audio.device_index is not None else "default",
+        config.hold_seconds,
+    )
+
+    bridge = HABridge(
+        device_classes=config.device_classes,
+        hold_seconds=config.hold_seconds,
+    )
+    bridge.setup()
+
+    engine = ParallelEngine(
+        pipelines=config.profiles,
+        audio_config=config.audio,
+        on_detection=bridge.on_detection,
+    )
+
+    def handle_signal(signum, _frame):
+        logger.info("Received signal %s — shutting down.", signum)
+        engine.stop()
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
+    logger.info("Listening on the microphone... (Ctrl+C to stop)")
+    try:
+        engine.start()  # blocking until stop()/KeyboardInterrupt
+    except Exception as e:  # pragma: no cover - top-level safety net
+        logger.error("Fatal error in detection loop: %s", e, exc_info=True)
+    finally:
+        bridge.shutdown()
+        logger.info("Shutdown complete.")
 
 
 if __name__ == "__main__":

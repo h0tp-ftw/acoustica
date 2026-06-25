@@ -1,162 +1,238 @@
-"""Configuration management for Acoustic Alarm Detector.
+"""Build the detector runtime config from Home Assistant add-on options.
 
-Supports multiple detector profiles loaded from environment or config.
+Reads ``/data/options.json`` (the schema is declared in ``config.yaml``) and
+turns each ``detectors`` entry into an :class:`acoustic_engine.models.AlarmProfile`
+using one of three sources:
+
+- ``preset``  — a built-in profile shipped with the engine (``smoke_t3``/``co_t4``)
+- ``profile`` — a profile/bundle YAML the user dropped under ``/config``
+- ``learn``   — a recording (WAV) the engine turns into a profile on first run
+
+Everything heavy (DSP, matching, the learn algorithm) lives in the engine; this
+module only locates files and maps the add-on's options onto the engine's API.
 """
 
 import json
-import os
 import logging
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
+
+from acoustic_engine.config import AudioSettings
+from acoustic_engine.learn import learn_profile_from_file
+from acoustic_engine.models import AlarmProfile
+from acoustic_engine.presets import list_presets, load_preset
+from acoustic_engine.profiles import load_profiles_from_yaml, save_profile_to_yaml
 
 logger = logging.getLogger(__name__)
 
+# Where add-on options land, and where we keep user assets + the discovery file.
+# Resolved at call time (not import) and overridable via env, so the whole thing
+# runs — and tests — off-HAOS too.
+def _options_path() -> Path:
+    return Path(os.getenv("OPTIONS_JSON", "/data/options.json"))
+
+
+def _data_dir() -> Path:
+    return Path(os.getenv("ACOUSTIC_DATA_DIR", "/config/acoustic_alarm_detector"))
+
+
+def _sounds_dir() -> Path:
+    return _data_dir() / "sounds"
+
+
+def _learned_dir() -> Path:
+    return _data_dir() / "profiles"
+
+# Sensible binary_sensor device_class for each built-in preset.
+_PRESET_DEVICE_CLASS = {"smoke_t3": "smoke", "co_t4": "carbon_monoxide"}
+_DEFAULT_DEVICE_CLASS = "sound"
+
+# Used when no options file exists at all (fresh install / local dev): detect the
+# two standardized life-safety alarms out of the box.
+_DEFAULT_DETECTORS = [
+    {"name": "Smoke Alarm", "preset": "smoke_t3", "device_class": "smoke"},
+    {"name": "CO Alarm", "preset": "co_t4", "device_class": "carbon_monoxide"},
+]
+
 
 @dataclass
-class DetectorProfile:
-    """Configuration for a single detector profile."""
+class DetectorSpec:
+    """One configured detector: a pattern plus the entity's device_class."""
 
-    name: str
-    device_class: str = "smoke"  # "smoke", "gas", "safety"
+    profile: AlarmProfile
+    device_class: str
 
-    # Detection Parameters
-    target_frequency: float = 3150.0
-    frequency_tolerance: float = 150.0
-    min_magnitude_threshold: float = 0.15
 
-    # Temporal Pattern Parameters
-    beep_duration_min: float = 0.1
-    beep_duration_max: float = 1.5
-    pause_duration_min: float = 0.05
-    pause_duration_max: float = 2.5
+@dataclass
+class AppConfig:
+    """Everything ``main`` needs to start the engine and the HA bridge."""
 
-    # Pattern Recognition
-    confirmation_cycles: int = 2
-    pattern_timeout: float = 10.0
-    beep_count: int = 3  # T3=3 beeps, T4=4 beeps
-
-    # Analysis / Quality Thresholds
-    min_energy_ratio: float = 0.08  # Target band must contain 8% of total energy (was 0.12, conservative start)
-    min_peak_sharpness: float = 2.0  # Peak must be 2x higher than neighbors (was 2.5)
-    max_freq_variance: float = 60.0  # Max Hz deviation during visual beep
-    min_magnitude_consistency: float = 0.3  # Min/Max magnitude ratio during beep
+    detectors: List[DetectorSpec]
+    audio: AudioSettings
+    hold_seconds: float
+    debug: bool
 
     @property
-    def required_beeps(self) -> int:
-        """Return required beeps for pattern match."""
-        return self.beep_count
+    def profiles(self) -> List[AlarmProfile]:
+        return [d.profile for d in self.detectors]
+
+    @property
+    def device_classes(self) -> dict:
+        """Map profile name -> device_class, as the bridge/integration key on."""
+        return {d.profile.name: d.device_class for d in self.detectors}
 
 
-@dataclass
-class AudioSettings:
-    """Shared audio capture settings."""
+def _read_options() -> dict:
+    """Load options.json, or return {} (so defaults apply) if it's absent/bad."""
+    path = _options_path()
+    if not path.exists():
+        logger.warning("No options at %s; using built-in defaults.", path)
+        return {}
+    try:
+        return json.loads(path.read_text()) or {}
+    except (OSError, ValueError) as e:
+        logger.error("Could not read %s (%s); using built-in defaults.", path, e)
+        return {}
 
-    sample_rate: int = 44100
-    chunk_size: int = 4096
-    channels: int = 1
-    device_index: Optional[int] = None
+
+def _resolve(name: str, *search_dirs: Path) -> Optional[Path]:
+    """Find ``name`` as an absolute path or relative to any of ``search_dirs``."""
+    candidate = Path(name)
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+    for base in search_dirs:
+        p = base / name
+        if p.exists():
+            return p
+    return None
 
 
-@dataclass
-class DetectorConfig:
-    """Main configuration container."""
+def _device_class_for(entry: dict, default: str) -> str:
+    dc = entry.get("device_class")
+    return dc if dc else default
 
-    device_name: str = "acoustic_alarm"
-    audio: AudioSettings = field(default_factory=AudioSettings)
-    profiles: List[DetectorProfile] = field(default_factory=list)
-    debug_mode: bool = False
 
-    @classmethod
-    def from_environment(cls) -> "DetectorConfig":
-        """Load configuration from environment variables (legacy single-profile mode)."""
+def _profiles_from_entry(entry: dict) -> List[DetectorSpec]:
+    """Turn one ``detectors`` option entry into one or more DetectorSpecs.
 
-        def safe_int(key: str, default: str) -> int:
-            val = os.getenv(key, default)
-            return int(val) if val and val.strip() else int(default)
+    A ``profile`` YAML may be a bundle of several profiles; each becomes its own
+    sensor. ``preset``/``learn`` always yield exactly one.
+    """
+    name = (entry.get("name") or "").strip()
 
-        def safe_float(key: str, default: str) -> float:
-            val = os.getenv(key, default)
-            return float(val) if val and val.strip() else float(default)
-
-        # Audio settings
-        audio = AudioSettings(
-            sample_rate=safe_int("SAMPLE_RATE", "44100"),
-            chunk_size=4096,
-            channels=1,
-            device_index=(
-                int(os.getenv("AUDIO_DEVICE_INDEX"))
-                if os.getenv("AUDIO_DEVICE_INDEX", "").strip()
-                else None
-            ),
-        )
-
-        # Get alarm type to determine pattern
-        alarm_type = os.getenv("ALARM_TYPE", "smoke")
-        beep_count = 4 if alarm_type == "co" else 3  # T4 vs T3
-        device_class = "gas" if alarm_type == "co" else "smoke"
-
-        # Create single profile from environment
-        profile = DetectorProfile(
-            name=alarm_type,
-            device_class=device_class,
-            target_frequency=safe_float("TARGET_FREQ", "3150"),
-            frequency_tolerance=safe_float("FREQ_TOLERANCE", "150"),
-            min_magnitude_threshold=safe_float("MIN_MAGNITUDE", "0.15"),
-            beep_duration_min=safe_float("BEEP_MIN", "0.1"),
-            beep_duration_max=safe_float("BEEP_MAX", "1.5"),
-            pause_duration_min=safe_float("PAUSE_MIN", "0.05"),
-            pause_duration_max=safe_float("PAUSE_MAX", "2.5"),
-            confirmation_cycles=safe_int("CONFIRMATION_CYCLES", "2"),
-            beep_count=beep_count,
-        )
-
-        return cls(
-            device_name=os.getenv("DEVICE_NAME", "smoke_alarm_detector"),
-            audio=audio,
-            profiles=[profile],
-            debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
-        )
-
-    @classmethod
-    def from_json_file(cls, path: str) -> "DetectorConfig":
-        """Load configuration from a JSON file (future multi-profile mode)."""
-        with open(path, "r") as f:
-            data = json.load(f)
-
-        audio = AudioSettings(**data.get("audio", {}))
-        profiles = [DetectorProfile(**p) for p in data.get("profiles", [])]
-
-        return cls(
-            device_name=data.get("device_name", "acoustic_alarm"),
-            audio=audio,
-            profiles=profiles,
-            debug_mode=data.get("debug_mode", False),
-        )
-
-    def log_config(self) -> None:
-        """Log the current configuration."""
-        logger.info("=" * 60)
-        logger.info("ACOUSTIC ALARM DETECTOR - CONFIGURATION")
-        logger.info("=" * 60)
-        logger.info(f"Device Name: {self.device_name}")
-        logger.info(f"Sample Rate: {self.audio.sample_rate} Hz")
-        logger.info(f"Audio Device: {self.audio.device_index or 'default'}")
-        logger.info(f"Debug Mode: {self.debug_mode}")
-        logger.info("-" * 40)
-        logger.info(f"Detector Profiles: {len(self.profiles)}")
-        for p in self.profiles:
-            logger.info(f"  • {p.name} ({p.device_class})")
-            logger.info(
-                f"    Frequency: {p.target_frequency}Hz ±{p.frequency_tolerance}"
+    if entry.get("preset"):
+        preset = entry["preset"].strip()
+        try:
+            profile = load_preset(preset)
+        except KeyError:
+            logger.error(
+                "Detector '%s': unknown preset '%s'. Available: %s. Skipping.",
+                name or preset, preset, ", ".join(list_presets()),
             )
-            logger.info(
-                f"    Beeps: {p.beep_count}, Confirmations: {p.confirmation_cycles}"
+            return []
+        if name:
+            profile.name = name
+        return [DetectorSpec(profile, _device_class_for(entry, _PRESET_DEVICE_CLASS.get(preset, _DEFAULT_DEVICE_CLASS)))]
+
+    if entry.get("profile"):
+        data_dir = _data_dir()
+        path = _resolve(entry["profile"].strip(), _learned_dir(), data_dir, Path("/config"))
+        if not path:
+            logger.error(
+                "Detector '%s': profile file '%s' not found under %s. Skipping.",
+                name or entry["profile"], entry["profile"], data_dir,
             )
-        logger.info("=" * 60)
+            return []
+        try:
+            profiles = load_profiles_from_yaml(path)
+        except Exception as e:  # ProfileError, parse errors, etc.
+            logger.error("Detector '%s': could not load %s (%s). Skipping.", name or path, path, e)
+            return []
+        dc = _device_class_for(entry, _DEFAULT_DEVICE_CLASS)
+        if len(profiles) == 1 and name:
+            profiles[0].name = name
+        elif len(profiles) > 1 and name:
+            logger.info("Detector '%s': bundle has %d profiles; keeping their own names.", name, len(profiles))
+        return [DetectorSpec(p, dc) for p in profiles]
+
+    if entry.get("learn"):
+        sounds_dir = _sounds_dir()
+        wav = _resolve(entry["learn"].strip(), sounds_dir, _data_dir(), Path("/config"))
+        if not wav:
+            logger.error(
+                "Detector '%s': recording '%s' not found under %s. Skipping.",
+                name or entry["learn"], entry["learn"], sounds_dir,
+            )
+            return []
+        try:
+            profile = learn_profile_from_file(wav, name=name or None)
+        except Exception as e:
+            logger.error("Detector '%s': could not learn from %s (%s). Skipping.", name or wav, wav, e)
+            return []
+        # Persist the learned profile so the user can inspect/tweak it.
+        try:
+            learned_dir = _learned_dir()
+            learned_dir.mkdir(parents=True, exist_ok=True)
+            out = learned_dir / f"{wav.stem}.yaml"
+            save_profile_to_yaml(profile, out)
+            logger.info("Learned profile from %s -> %s", wav.name, out)
+        except OSError as e:
+            logger.warning("Learned profile but could not save it: %s", e)
+        return [DetectorSpec(profile, _device_class_for(entry, _DEFAULT_DEVICE_CLASS))]
+
+    logger.error(
+        "Detector '%s' has no source. Give it one of: preset, profile, or learn. Skipping.",
+        name or "(unnamed)",
+    )
+    return []
 
 
-# Legacy compatibility: Keep old DetectorConfig behavior
-# This allows existing code to continue working during transition
-def _create_legacy_config() -> DetectorConfig:
-    """Create config for legacy single-profile mode."""
-    return DetectorConfig.from_environment()
+def _dedupe_names(specs: List[DetectorSpec]) -> List[DetectorSpec]:
+    """Ensure profile names are unique (they key the HA entity + bridge state)."""
+    seen: dict = {}
+    for spec in specs:
+        base = spec.profile.name
+        if base not in seen:
+            seen[base] = 1
+            continue
+        seen[base] += 1
+        new = f"{base} {seen[base]}"
+        logger.warning("Duplicate detector name '%s'; renaming one to '%s'.", base, new)
+        spec.profile.name = new
+    return specs
+
+
+def load_app_config() -> AppConfig:
+    """Read add-on options and build the full runtime configuration."""
+    opts = _read_options()
+
+    entries = opts.get("detectors")
+    if not entries:
+        entries = _DEFAULT_DETECTORS
+
+    specs: List[DetectorSpec] = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            specs.extend(_profiles_from_entry(entry))
+        else:
+            logger.error("Ignoring malformed detector entry: %r", entry)
+    specs = _dedupe_names(specs)
+
+    device_index = opts.get("device_index")
+    if isinstance(device_index, str):
+        device_index = int(device_index) if device_index.strip() else None
+
+    audio = AudioSettings(
+        sample_rate=int(opts.get("sample_rate", 44100) or 44100),
+        device_index=device_index,
+        channels=1,
+    )
+
+    return AppConfig(
+        detectors=specs,
+        audio=audio,
+        hold_seconds=float(opts.get("hold_seconds", 30) or 30),
+        debug=bool(opts.get("debug", False)),
+    )

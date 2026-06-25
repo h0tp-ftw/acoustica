@@ -1,11 +1,13 @@
 {
   "domain": "acoustic_alarm_detector",
   "name": "Acoustic Alarm Detector",
-  "documentation": "https://github.com/yourusername/alarm-audio-detector",
-  "requirements": [],
-  "codeowners": ["@yourusername"],
+  "codeowners": ["@h0tp-ftw"],
   "config_flow": true,
+  "documentation": "https://github.com/h0tp-ftw/alarm-audio-detector",
   "integration_type": "device",
   "iot_class": "local_push",
-  "version": "9.0.0"
+  "issue_tracker": "https://github.com/h0tp-ftw/alarm-audio-detector/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "10.0.0"
 }

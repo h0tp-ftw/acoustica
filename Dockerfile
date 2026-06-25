@@ -1,61 +1,57 @@
-# Use Home Assistant base image
+# Home Assistant add-on image.
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Install system dependencies
-# We use apk for the base libraries and pip for the python packages
+# System dependencies:
+# - git: install the pinned engine from its git repo
+# - portaudio(-dev): PortAudio runtime + headers for sounddevice / PyAudio
+# - alsa-* / pulseaudio-utils: route the add-on's audio to HA's PulseAudio
+# - gcc/g++/musl-dev/python3-dev/libffi-dev: build any wheels not prebuilt (cffi, PyAudio)
+# - bash/jq/curl: startup script helpers
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     python3-dev \
+    git \
     alsa-lib \
     alsa-utils \
     alsa-plugins-pulse \
     portaudio \
     portaudio-dev \
+    libffi-dev \
     gcc \
     g++ \
     musl-dev \
-    linux-headers \
     pulseaudio-utils \
     bash \
     curl \
-    iproute2 \
     jq
-
-
 
 WORKDIR /app
 
-# Install Python requirements
-# Note: Installing numpy/scipy via pip on Alpine can be slow,
-# but it's the only way to ensure they land in the correct Python environment
+# Install the detection engine (+ PyAudio fallback backend) and its deps.
+# --prefer-binary uses musllinux wheels for numpy/cffi instead of building them.
 COPY requirements.txt .
-RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary numpy==1.26.4 websockets==12.0
-RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary pyaudio==0.2.14
-# Scipy is the heaviest, we try to install it last
-RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary scipy==1.12.0
+RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary \
+        -r requirements.txt
 
-# Copy application code
+# Application code
 COPY detector/ ./detector/
 COPY run.sh .
 RUN chmod a+x ./run.sh
 
-# Copy custom integration (for auto-install)
+# Custom integration (auto-installed into /config by run.sh)
 COPY custom_components/ ./custom_components/
 
-# Labels for Home Assistant
+# NOTE: ALSA -> PulseAudio routing is set up at runtime in run.sh via
+# /etc/asound.conf (additive), so the stock alsa.conf + alsa-plugins definitions
+# that make `type pulse` work stay intact.
+
 LABEL \
     io.hass.name="Acoustic Alarm Detector" \
-    io.hass.description="Acoustic smoke and CO alarm detection with native integration" \
-    io.hass.version="9.0.0" \
+    io.hass.description="Listen on a microphone and detect alarms/beeps as Home Assistant binary sensors" \
+    io.hass.version="10.0.0" \
     io.hass.type="addon" \
     io.hass.arch="aarch64|amd64|armhf|armv7"
 
-# Create ALSA configuration to route audio to PulseAudio
-# Using printf for better portability
-RUN mkdir -p /usr/share/alsa && \
-    printf 'pcm.!default {\n  type pulse\n}\nctl.!default {\n  type pulse\n}\n' > /usr/share/alsa/alsa.conf
-
 ENTRYPOINT ["/bin/bash", "/app/run.sh"]
-

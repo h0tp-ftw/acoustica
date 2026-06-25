@@ -1,6 +1,0 @@
-Loaded 5 profiles from bundled file:
-  - SmokeAlarm_T3 : 6 segments
-  - COAlarm_T4 : 8 segments
-  - WashingMachine_EndCycle : 6 segments
-  - Microwave_Complete : 6 segments
-  - Doorbell_DingDong : 3 segments

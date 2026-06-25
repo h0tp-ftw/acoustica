@@ -1,8 +1,0 @@
-Loaded: SmokeAlarm_T3
-Segments: 6
-   1 Tone(2900.0-3200.0Hz, 0.4-0.6s)
-   2 Silence(0.1-0.3s)
-   3 Tone(2900.0-3200.0Hz, 0.4-0.6s)
-   4 Silence(0.1-0.3s)
-   5 Tone(2900.0-3200.0Hz, 0.4-0.6s)
-   6 Silence(0.8-1.5s)

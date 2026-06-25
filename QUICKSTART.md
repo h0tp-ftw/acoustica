@@ -1,135 +1,55 @@
-# 🚀 Quick Start Guide - Acoustic Alarm Detector
+# 🚀 Quick Start
 
-## ✅ Pre-Deployment Status
+Get a smoke + CO alarm sensor running in a few minutes. Full details in
+[README.md](README.md).
 
-**All files verified and ready!**
-- ✅ Dockerfile fixed (correct chmod path)
-- ✅ requirements.txt corrected (Python packages)
-- ✅ run.sh has executable permissions
-- ✅ All Python modules present
-- ✅ Configuration files validated
+## 1. Install & start the add-on
 
----
+- *Settings → Add-ons → Add-on Store → ⋮ → Repositories* → add this repo's URL.
+- Install **Acoustic Alarm Detector**, then **Start** it.
+- The add-on copies its companion integration into `/config/custom_components/`
+  (check the log).
 
-## 📦 Installation (3 Steps)
+## 2. Load the integration
 
-### 1️⃣ Reload Add-on Store
-```
-Settings → Add-ons → ⋮ (menu) → Check for updates
-```
-**Wait:** 10-30 seconds
+- **Restart Home Assistant Core once** (*Settings → System → Restart*).
+- *Settings → Devices & Services → + Add Integration → “Acoustic Alarm Detector”
+  → Submit*.
 
-### 2️⃣ Install Add-on
-```
-Settings → Add-ons → Add-on Store → Local add-ons
-→ "Acoustic Alarm Detector" → Install
-```
-**Wait:** 3-5 minutes (first build)
+You now have an **Acoustic Alarm Detector** device with:
 
-### 3️⃣ Configure & Start
-**Configuration tab:**
+- `binary_sensor.acoustic_alarm_detector_smoke_alarm`
+- `binary_sensor.acoustic_alarm_detector_co_alarm`
+
+## 3. Test it
+
+- Press the **Test** button on a real smoke/CO alarm near the mic, **or**
+- Set `debug: true` in the add-on options and watch the log — it prints the mic it
+  opened and every tone it hears.
+
+The sensor flips to **Detected** (on) when the pattern is heard and clears after
+`hold_seconds` (default 30s).
+
+## 4. Add your own sounds
+
+In the add-on **Configuration** tab, add a detector:
+
 ```yaml
-mqtt_host: "core-mosquitto"
-mqtt_port: 1883
-mqtt_user: ""
-mqtt_password: ""
-```
-**Then:** Click "Start"
-
----
-
-## 🧪 Quick Test (MQTT)
-
-### Test 1: Check Sensor Exists
-```
-Developer Tools → States → Search: "smoke_alarm"
-```
-**Expected:** `binary_sensor.smoke_alarm_detector` = "Clear"
-
-### Test 2: Simulate Detection
-```
-Developer Tools → MQTT → Publish
-Topic: homeassistant/binary_sensor/smoke_alarm_detector/state
-Payload: ON
-```
-**Expected:** Sensor changes to "Detected"
-
----
-
-## 📊 Monitor Logs
-
-**Add-on page → Log tab**
-
-**Success indicators:**
-```
-✓ "Connected to MQTT broker"
-✓ "Audio stream opened successfully"
-✓ "Detector is running. Listening..."
+detectors:
+  - name: "Washing Machine"
+    learn: "washer.wav"        # put the WAV in /config/acoustic_alarm_detector/sounds/
+    device_class: "running"
 ```
 
----
+or point `profile:` at a YAML you placed in
+`/config/acoustic_alarm_detector/profiles/` (copy an example from
+[`profiles/`](profiles/)). Restart the add-on after changing detectors; reload the
+integration (or restart Core) to pick up brand-new sensors.
 
-## 🎯 Key Configuration Parameters
+## Common issues
 
-| Parameter | Default | Purpose |
-|-----------|---------|---------|
-| `target_frequency` | 3150 | Alarm frequency (Hz) |
-| `min_magnitude_threshold` | 0.15 | Sensitivity (0.05-0.5) |
-| `confirmation_cycles` | 2 | Cycles to confirm |
-| `alarm_type` | smoke | "smoke" or "co" |
-
-**Adjust sensitivity:**
-- Too many false alarms → Increase threshold to 0.20
-- Missing real alarms → Decrease threshold to 0.10
-
----
-
-## 🐛 Common Issues
-
-### Issue: Add-on not in store
-**Fix:** Reload add-on store, check file location
-
-### Issue: MQTT connection failed
-**Fix:** Verify Mosquitto broker is running, check credentials
-
-### Issue: Audio device error
-**Expected in dev container** - Will work on real hardware
-
-### Issue: No detection
-**Fix:** Adjust `min_magnitude_threshold` and `frequency_tolerance`
-
----
-
-## 📚 Full Documentation
-
-- **Deployment Guide:** `docs/DEPLOYMENT_GUIDE.md`
-- **Automations:** `docs/AUTOMATIONS.md`
-- **ALSA Setup:** `docs/ALSA_SETUP.md`
-
----
-
-## 🎓 Next Steps
-
-1. ✅ Files validated (DONE)
-2. 🔄 Install add-on in Home Assistant
-3. 🔄 Configure MQTT settings
-4. 🔄 Test with MQTT Developer Tools
-5. 🔄 Deploy to Raspberry Pi with microphone
-6. 🔄 Test with real smoke alarm
-7. 🔄 Create automations for notifications
-
----
-
-## 📞 Validation Command
-
-Run anytime to check file integrity:
-```bash
-cd /workspaces/core/alarm-audio-detector
-./validate.sh
-```
-
----
-
-**Status:** ✅ Ready for deployment  
-**Version:** 1.0.0  
-**Last Validated:** 2026-01-09
+| Symptom | Fix |
+| --- | --- |
+| Integration not in the list | Restart **HA Core** after first starting the add-on. |
+| No detections | `debug: true`, check the log for the mic; set `device_index` if you have several. |
+| New detector has no sensor | Reload the integration (or restart Core) after adding it. |

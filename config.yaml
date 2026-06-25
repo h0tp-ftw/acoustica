@@ -1,8 +1,8 @@
-name: "Acoustic Alarm Detector v9"
-version: "9.0.0"
-slug: "alarm_detector_v9"
-description: "Acoustic smoke and CO alarm detection with native HA integration"
-url: "https://github.com/yourusername/alarm-audio-detector"
+name: "Acoustic Alarm Detector"
+version: "10.0.0"
+slug: "acoustic_alarm_detector"
+description: "Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into Home Assistant binary sensors"
+url: "https://github.com/h0tp-ftw/alarm-audio-detector"
 arch:
   - aarch64
   - amd64
@@ -11,33 +11,35 @@ arch:
 startup: application
 boot: auto
 init: false
-apparmor: true
 audio: true
-hassio_api: true
 homeassistant_api: true
 map:
   - config:rw
+# Each detector becomes one binary_sensor. Give it a source:
+#   preset:  a built-in pattern  (smoke_t3 | co_t4)
+#   profile: a profile YAML under /config/acoustic_alarm_detector/profiles/
+#   learn:   a recording (WAV) under /config/acoustic_alarm_detector/sounds/
+#            — the add-on turns it into a profile on first run.
+# device_class controls the icon/semantics of the sensor in Home Assistant.
 options:
-  device_name: "smoke_alarm_detector"
-  alarm_type: "smoke"
-  target_frequency: 3133
-  frequency_tolerance: 250
-  min_magnitude_threshold: 0.25
-  beep_duration_min: 0.1
-  beep_duration_max: 1.5
-  pause_duration_min: 0.05
-  pause_duration_max: 2.5
-  confirmation_cycles: 1
-  debug_mode: false
+  detectors:
+    - name: "Smoke Alarm"
+      preset: "smoke_t3"
+      device_class: "smoke"
+    - name: "CO Alarm"
+      preset: "co_t4"
+      device_class: "carbon_monoxide"
+  sample_rate: 44100
+  hold_seconds: 30
+  debug: false
 schema:
-  device_name: str
-  alarm_type: list(smoke|co)
-  target_frequency: int
-  frequency_tolerance: int
-  min_magnitude_threshold: float
-  beep_duration_min: float
-  beep_duration_max: float
-  pause_duration_min: float
-  pause_duration_max: float
-  confirmation_cycles: int
-  debug_mode: bool
+  detectors:
+    - name: str
+      preset: "list(smoke_t3|co_t4)?"
+      profile: "str?"
+      learn: "str?"
+      device_class: "list(smoke|carbon_monoxide|gas|sound|moisture|safety|problem|running|vibration)?"
+  sample_rate: int
+  device_index: "int?"
+  hold_seconds: int
+  debug: bool

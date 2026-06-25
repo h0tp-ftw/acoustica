@@ -1,40 +1,35 @@
-# Acoustic Alarm Detector Integration
+# Acoustic Alarm Detector — Home Assistant integration
 
-A native Home Assistant integration for acoustic smoke and CO alarm detection.
+The companion integration for the **Acoustic Alarm Detector add-on**. It exposes
+one `binary_sensor` per detector the add-on reports, all grouped under a single
+**Acoustic Alarm Detector** device.
 
-## Installation
+You normally don't install this by hand — the add-on copies it into
+`/config/custom_components/` on first start. After that:
 
-1. Copy this entire directory to your Home Assistant custom_components folder:
+1. Restart Home Assistant Core once.
+2. *Settings → Devices & Services → + Add Integration → “Acoustic Alarm Detector”*.
 
-   ```
-   /config/custom_components/acoustic_alarm_detector/
-   ```
+## How it works
 
-2. Restart Home Assistant
+- The add-on does the listening and fires an `acoustic_alarm_detector_event` on
+  Home Assistant's event bus (`{name, state, device_class}`) via the Supervisor
+  REST proxy — no MQTT broker, no websocket auth.
+- This integration listens for that event and updates the matching sensor. Sensors
+  are created from the add-on's discovery file
+  (`/config/acoustic_alarm_detector/profiles.json`) at setup, and any detector not
+  yet seen is added automatically the first time its event arrives.
+- One config entry serves every detector (single instance).
 
-3. Go to **Settings → Devices & Services → Add Integration**
+## Files
 
-4. Search for "Acoustic Alarm Detector"
+```
+__init__.py        # config entry + event-bus listener
+binary_sensor.py   # the sensor entities (one device, N sensors)
+config_flow.py     # single confirm step
+const.py           # DOMAIN, event/discovery paths
+manifest.json
+strings.json, translations/en.json
+```
 
-5. Configure your device and alarm type
-
-## Requirements
-
-- The Acoustic Alarm Detector add-on must be installed and running
-- Add-on configuration must match integration configuration
-
-## Features
-
-- Native binary sensor creation
-- UI-based configuration
-- WebSocket communication with add-on
-- Device registry integration
-- Proper Home Assistant security model
-
-## Documentation
-
-See the main repository for complete setup instructions and documentation.
-
-## Version
-
-9.0.0
+Version 10.0.0
