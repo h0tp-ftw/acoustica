@@ -4,4 +4,4 @@
 # since sounddevice's PortAudio binding can be finicky inside add-ons.
 # Pinned to a release tag so an engine update can't break the add-on unnoticed;
 # bump this tag to adopt a newer engine.
-acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@v1.3.0
+acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@v1.4.0
