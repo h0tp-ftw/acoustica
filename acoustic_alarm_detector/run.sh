@@ -33,7 +33,8 @@ fi
 # This is ADDITIVE to the stock ALSA config (which defines the pulse plugin via
 # alsa-plugins) — replacing alsa.conf instead would drop those definitions and
 # break capture.
-cat > /etc/asound.conf << 'ALSAEOF'
+if : > /etc/asound.conf 2>/dev/null; then
+    cat > /etc/asound.conf << 'ALSAEOF'
 pcm.!default {
     type pulse
 }
@@ -41,6 +42,11 @@ ctl.!default {
     type pulse
 }
 ALSAEOF
+    [ "$DEBUG_MODE" = "true" ] && log_info "Routed ALSA default -> PulseAudio via /etc/asound.conf"
+else
+    log_warn "/etc is read-only — can't write /etc/asound.conf; relying on PULSE_SERVER."
+    log_warn "A read-only rootfs means this container isn't a clean build — reinstall/rebuild the add-on."
+fi
 
 if [ -S "/run/audio/pulse.sock" ]; then
     export PULSE_SERVER="unix:/run/audio/pulse.sock"
@@ -68,8 +74,16 @@ fi
 cd /app || exit 1
 export PYTHONPATH=/app:$PYTHONPATH
 
-if [ ! -f "/app/detector/main.py" ]; then
-    log_error "Detector code not found at /app/detector — check the image build."
+# Pre-flight: the 'detector' package must import. If it doesn't, the image is
+# incomplete (interrupted build / out-of-space overlay) — dump enough to tell
+# why, instead of a bare ModuleNotFoundError.
+if ! python3 -c "import detector" 2>/dev/null; then
+    log_error "Cannot import the 'detector' package from /app — the image looks incomplete."
+    log_error "Contents of /app:"
+    ls -la /app 2>&1 | while IFS= read -r line; do log_error "  $line"; done
+    log_error "PYTHONPATH=$PYTHONPATH"
+    log_error "sys.path=$(python3 -c 'import sys; print(sys.path)' 2>&1)"
+    log_error "Fix: uninstall + reinstall the add-on to force a clean rebuild, and check host disk space."
     exit 1
 fi
 

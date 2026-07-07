@@ -29,6 +29,9 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
+# Make `python3 -m detector.main` resolve regardless of cwd or Python safe-path.
+ENV PYTHONPATH=/app
+
 # Install the detection engine (+ PyAudio fallback backend) and its deps.
 # --prefer-binary uses musllinux wheels for numpy/cffi instead of building them.
 COPY requirements.txt .
@@ -50,7 +53,7 @@ COPY custom_components/ ./custom_components/
 LABEL \
     io.hass.name="Acoustic Alarm Detector" \
     io.hass.description="Listen on a microphone and detect alarms/beeps as Home Assistant binary sensors" \
-    io.hass.version="10.0.1" \
+    io.hass.version="10.0.2" \
     io.hass.type="addon" \
     io.hass.arch="aarch64|amd64|armhf|armv7"
 
