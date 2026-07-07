@@ -29,27 +29,25 @@ if [ -d "$INTEGRATION_SRC" ]; then
 fi
 
 # --- Audio: route ALSA's default device through PulseAudio ----------------- #
-# PortAudio (sounddevice / PyAudio) needs a working default device; point the
-# default PCM/CTL at the pulse plugin. Prefer a system-wide /etc/asound.conf, but
-# this container's rootfs is read-only (only /data, /config, /tmp are writable),
-# so fall back to a config in /tmp and point alsa-lib at it via ALSA_CONFIG_PATH.
-# ALSA_CONFIG_PATH replaces the default search, so include the system alsa.conf
-# first to keep the 'pulse' plugin type (from alsa-plugins) defined.
+# PortAudio (sounddevice / PyAudio) needs a working default device; point ALSA's
+# default PCM/CTL at the pulse plugin. This is a DROP-IN over the stock config
+# (which defines the 'pulse' plugin via alsa-plugins), same mechanism as
+# /etc/asound.conf. But this container's rootfs is read-only (only /data,
+# /config, /tmp writable), so on read-only /etc we point HOME at a writable dir
+# and drop the override in ~/.asoundrc / ~/.config/alsa/asoundrc — which the
+# stock alsa.conf loads via the same hook. This keeps the system config (and its
+# plugin defs) loaded normally; ALSA_CONFIG_PATH replaces it and broke Pa_Init.
 ASOUND_OVERRIDE='pcm.!default { type pulse }
 ctl.!default { type pulse }'
 
 if printf '%s\n' "$ASOUND_OVERRIDE" > /etc/asound.conf 2>/dev/null; then
     [ "$DEBUG_MODE" = "true" ] && log_info "Routed ALSA default -> PulseAudio via /etc/asound.conf"
 else
-    SYS_ALSA="/usr/share/alsa/alsa.conf"
-    ALSA_ALT="/tmp/asound.conf"
-    {
-        [ -r "$SYS_ALSA" ] && echo "<$SYS_ALSA>"
-        printf '%s\n' "$ASOUND_OVERRIDE"
-    } > "$ALSA_ALT"
-    export ALSA_CONFIG_PATH="$ALSA_ALT"
-    log_warn "/etc read-only — routed ALSA via ALSA_CONFIG_PATH=$ALSA_ALT."
-    [ -r "$SYS_ALSA" ] || log_warn "  $SYS_ALSA unreadable — 'type pulse' may be undefined (check AppArmor)."
+    export HOME=/tmp
+    mkdir -p /tmp/.config/alsa 2>/dev/null
+    printf '%s\n' "$ASOUND_OVERRIDE" > /tmp/.asoundrc
+    printf '%s\n' "$ASOUND_OVERRIDE" > /tmp/.config/alsa/asoundrc 2>/dev/null
+    log_warn "/etc read-only — routed ALSA via ~/.asoundrc (HOME=/tmp)."
 fi
 
 if [ -S "/run/audio/pulse.sock" ]; then
@@ -59,9 +57,13 @@ if [ -S "/run/audio/pulse.sock" ]; then
     # Point the client at the cookie via env — don't write /root (read-only rootfs).
     [ -f "/data/pulse-cookie" ] && export PULSE_COOKIE="/data/pulse-cookie"
 
-    if [ "$DEBUG_MODE" = "true" ]; then
-        log_info "PulseAudio socket found. Sources:"
-        pactl list sources short 2>/dev/null || true
+    # Always list capture sources — this is how we tell whether a mic exists.
+    PA_SOURCES="$(pactl list sources short 2>/dev/null)"
+    if [ -n "$PA_SOURCES" ]; then
+        log_info "PulseAudio sources (capture devices):"
+        printf '%s\n' "$PA_SOURCES" | while IFS= read -r src; do log_info "  $src"; done
+    else
+        log_warn "No PulseAudio sources — no microphone is available to the host."
     fi
 
     # Make sure the default mic isn't muted / is at full gain.
