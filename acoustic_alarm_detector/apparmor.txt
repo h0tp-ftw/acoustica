@@ -1,6 +1,6 @@
 #include <tunables/global>
 
-profile alarm_detector_v9 flags=(attach_disconnected,mediate_deleted) {
+profile acoustic_alarm_detector flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   # S6-Overlay
@@ -26,6 +26,7 @@ profile alarm_detector_v9 flags=(attach_disconnected,mediate_deleted) {
   # Python and application
   /usr/bin/python3* ix,
   /usr/lib/python3*/** r,
+  /app/ r,           # read (list) the dir itself — needed so `python -m` can find the package
   /app/** r,
   /app/run.sh rix,
 
@@ -49,9 +50,11 @@ profile alarm_detector_v9 flags=(attach_disconnected,mediate_deleted) {
   /dev/snd/* rw,
   /dev/audio* rw,
 
-  # Proc and sys for audio detection
+  # Proc and sys for audio detection + numpy/openblas CPU probing
   /proc/*/status r,
   /proc/asound/** r,
+  /proc/cpuinfo r,
+  /proc/meminfo r,
   /sys/devices/** r,
 
   # DNS resolution
