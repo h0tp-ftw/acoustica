@@ -28,17 +28,18 @@ if [ -d "$INTEGRATION_SRC" ]; then
     fi
 fi
 
-# --- Audio: route ALSA's default device through PulseAudio ----------------- #
-# PortAudio (sounddevice / PyAudio) needs a working default device; point ALSA's
-# default PCM/CTL at the pulse plugin. This is a DROP-IN over the stock config
-# (which defines the 'pulse' plugin via alsa-plugins), same mechanism as
-# /etc/asound.conf. But this container's rootfs is read-only (only /data,
-# /config, /tmp writable), so on read-only /etc we point HOME at a writable dir
-# and drop the override in ~/.asoundrc / ~/.config/alsa/asoundrc — which the
-# stock alsa.conf loads via the same hook. This keeps the system config (and its
-# plugin defs) loaded normally; ALSA_CONFIG_PATH replaces it and broke Pa_Init.
-ASOUND_OVERRIDE='pcm.!default { type pulse }
-ctl.!default { type pulse }'
+# --- Audio: route ALSA's default *capture* PCM through PulseAudio ----------- #
+# PortAudio (sounddevice / PyAudio) needs a working default device. Override ONLY
+# pcm.!default -> pulse; do NOT touch ctl.!default. PortAudio enumerates sound
+# cards via the CTL interface during Pa_Initialize, and pointing ctl at the pulse
+# plugin makes that enumeration fail here ("error getting host API"), so leave
+# ctl as the stock hw-based default (which initializes fine).
+# Delivery is a DROP-IN, same mechanism as /etc/asound.conf. The rootfs is
+# read-only (only /data, /config, /tmp writable), so on read-only /etc we point
+# HOME at a writable dir and drop the override in ~/.asoundrc /
+# ~/.config/alsa/asoundrc, which the stock alsa.conf loads via the same hook —
+# keeping the system config (and its plugin defs) intact.
+ASOUND_OVERRIDE='pcm.!default { type pulse }'
 
 if printf '%s\n' "$ASOUND_OVERRIDE" > /etc/asound.conf 2>/dev/null; then
     [ "$DEBUG_MODE" = "true" ] && log_info "Routed ALSA default -> PulseAudio via /etc/asound.conf"
