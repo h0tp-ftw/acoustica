@@ -52,6 +52,10 @@ profile acoustic_alarm_detector flags=(attach_disconnected,mediate_deleted) {
   # Device access for audio
   /dev/snd/* rw,
   /dev/audio* rw,
+  # PulseAudio client shared memory — the pulse plugin/PortAudio fail to init
+  # without this (audio is moved over POSIX shm).
+  /dev/shm/ rw,
+  /dev/shm/** rwk,
 
   # Proc and sys for audio detection + numpy/openblas CPU probing
   /proc/*/status r,

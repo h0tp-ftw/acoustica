@@ -92,5 +92,15 @@ if ! python3 -c "import detector" 2>/dev/null; then
     exit 1
 fi
 
-log_info "Starting Acoustic Alarm Detector..."
-exec python3 -u -m detector.main
+if [ "$DEBUG_MODE" = "true" ]; then
+    log_info "Starting Acoustic Alarm Detector (debug: container stays alive on exit)..."
+    python3 -u -m detector.main
+    rc=$?
+    log_warn "detector exited (rc=$rc). DEBUG mode: keeping the container alive so you can"
+    log_warn "  docker exec -it addon_581b527c_acoustic_alarm_detector bash"
+    log_warn "and run audio diagnostics in the real environment. Stop the add-on to end."
+    exec tail -f /dev/null
+else
+    log_info "Starting Acoustic Alarm Detector..."
+    exec python3 -u -m detector.main
+fi
