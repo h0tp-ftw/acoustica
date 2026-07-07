@@ -45,6 +45,9 @@ profile acoustic_alarm_detector flags=(attach_disconnected,mediate_deleted) {
   # System libraries
   /lib/** rm,
   /usr/lib/** rm,
+  # ALSA runtime config (defines the 'pulse' plugin for PortAudio)
+  /usr/share/alsa/ r,
+  /usr/share/alsa/** r,
 
   # Device access for audio
   /dev/snd/* rw,

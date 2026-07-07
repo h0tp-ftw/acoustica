@@ -29,33 +29,35 @@ if [ -d "$INTEGRATION_SRC" ]; then
 fi
 
 # --- Audio: route ALSA's default device through PulseAudio ----------------- #
-# Point the default PCM/CTL at the pulse plugin via a system-wide asound.conf.
-# This is ADDITIVE to the stock ALSA config (which defines the pulse plugin via
-# alsa-plugins) — replacing alsa.conf instead would drop those definitions and
-# break capture.
-if : > /etc/asound.conf 2>/dev/null; then
-    cat > /etc/asound.conf << 'ALSAEOF'
-pcm.!default {
-    type pulse
-}
-ctl.!default {
-    type pulse
-}
-ALSAEOF
+# PortAudio (sounddevice / PyAudio) needs a working default device; point the
+# default PCM/CTL at the pulse plugin. Prefer a system-wide /etc/asound.conf, but
+# this container's rootfs is read-only (only /data, /config, /tmp are writable),
+# so fall back to a config in /tmp and point alsa-lib at it via ALSA_CONFIG_PATH.
+# ALSA_CONFIG_PATH replaces the default search, so include the system alsa.conf
+# first to keep the 'pulse' plugin type (from alsa-plugins) defined.
+ASOUND_OVERRIDE='pcm.!default { type pulse }
+ctl.!default { type pulse }'
+
+if printf '%s\n' "$ASOUND_OVERRIDE" > /etc/asound.conf 2>/dev/null; then
     [ "$DEBUG_MODE" = "true" ] && log_info "Routed ALSA default -> PulseAudio via /etc/asound.conf"
 else
-    log_warn "/etc is read-only — can't write /etc/asound.conf; relying on PULSE_SERVER."
-    log_warn "A read-only rootfs means this container isn't a clean build — reinstall/rebuild the add-on."
+    SYS_ALSA="/usr/share/alsa/alsa.conf"
+    ALSA_ALT="/tmp/asound.conf"
+    {
+        [ -r "$SYS_ALSA" ] && echo "<$SYS_ALSA>"
+        printf '%s\n' "$ASOUND_OVERRIDE"
+    } > "$ALSA_ALT"
+    export ALSA_CONFIG_PATH="$ALSA_ALT"
+    log_warn "/etc read-only — routed ALSA via ALSA_CONFIG_PATH=$ALSA_ALT."
+    [ -r "$SYS_ALSA" ] || log_warn "  $SYS_ALSA unreadable — 'type pulse' may be undefined (check AppArmor)."
 fi
 
 if [ -S "/run/audio/pulse.sock" ]; then
     export PULSE_SERVER="unix:/run/audio/pulse.sock"
     export PULSE_RUNTIME_PATH="/run/audio"
 
-    if [ -f "/data/pulse-cookie" ]; then
-        mkdir -p /root/.config/pulse
-        ln -sf /data/pulse-cookie /root/.config/pulse/cookie
-    fi
+    # Point the client at the cookie via env — don't write /root (read-only rootfs).
+    [ -f "/data/pulse-cookie" ] && export PULSE_COOKIE="/data/pulse-cookie"
 
     if [ "$DEBUG_MODE" = "true" ]; then
         log_info "PulseAudio socket found. Sources:"
