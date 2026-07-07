@@ -48,6 +48,13 @@ profile acoustic_alarm_detector flags=(attach_disconnected,mediate_deleted) {
   # ALSA runtime config (defines the 'pulse' plugin for PortAudio)
   /usr/share/alsa/ r,
   /usr/share/alsa/** r,
+  # HA injects /etc/asound.conf (the pulse default). ALSA's config hook loads it,
+  # and if it CAN'T be read it discards the ENTIRE config -> all audio fails with
+  # "hooks failed, removing configuration". Must be readable.
+  /etc/asound.conf r,
+  /etc/alsa/ r,
+  /etc/alsa/** r,
+  /etc/pulse/** r,
 
   # Device access for audio
   /dev/snd/* rw,
