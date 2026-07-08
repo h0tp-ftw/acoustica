@@ -28,28 +28,15 @@ if [ -d "$INTEGRATION_SRC" ]; then
     fi
 fi
 
-# --- Audio: route ALSA's default *capture* PCM through PulseAudio ----------- #
-# PortAudio (sounddevice / PyAudio) needs a working default device. Override ONLY
-# pcm.!default -> pulse; do NOT touch ctl.!default. PortAudio enumerates sound
-# cards via the CTL interface during Pa_Initialize, and pointing ctl at the pulse
-# plugin makes that enumeration fail here ("error getting host API"), so leave
-# ctl as the stock hw-based default (which initializes fine).
-# Delivery is a DROP-IN, same mechanism as /etc/asound.conf. The rootfs is
-# read-only (only /data, /config, /tmp writable), so on read-only /etc we point
-# HOME at a writable dir and drop the override in ~/.asoundrc /
-# ~/.config/alsa/asoundrc, which the stock alsa.conf loads via the same hook —
-# keeping the system config (and its plugin defs) intact.
-ASOUND_OVERRIDE='pcm.!default { type pulse }'
-
-if printf '%s\n' "$ASOUND_OVERRIDE" > /etc/asound.conf 2>/dev/null; then
-    [ "$DEBUG_MODE" = "true" ] && log_info "Routed ALSA default -> PulseAudio via /etc/asound.conf"
-else
-    export HOME=/tmp
-    mkdir -p /tmp/.config/alsa 2>/dev/null
-    printf '%s\n' "$ASOUND_OVERRIDE" > /tmp/.asoundrc
-    printf '%s\n' "$ASOUND_OVERRIDE" > /tmp/.config/alsa/asoundrc 2>/dev/null
-    log_warn "/etc read-only — routed ALSA via ~/.asoundrc (HOME=/tmp)."
-fi
+# --- Audio: ALSA default -> PulseAudio -------------------------------------- #
+# HA injects a (read-only) /etc/asound.conf that routes ALSA's default to pulse
+# and exposes the server at /run/audio/pulse.sock. The AppArmor profile MUST
+# grant read on /etc/asound.conf, or ALSA discards its ENTIRE config and every
+# audio backend dies at Pa_Initialize (that was the whole audio saga — see
+# apparmor.txt). As a belt-and-suspenders for hosts that don't inject it, also
+# drop a ~/.asoundrc in writable /tmp (HOME points there).
+export HOME=/tmp
+printf 'pcm.!default { type pulse }\n' > /tmp/.asoundrc 2>/dev/null
 
 if [ -S "/run/audio/pulse.sock" ]; then
     export PULSE_SERVER="unix:/run/audio/pulse.sock"
