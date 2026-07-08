@@ -1,7 +1,16 @@
 # Detection engine: audio capture (sounddevice/PyAudio), DSP, pattern matching,
-# profile loading, and learn-from-recording. Pulls in numpy + PyYAML.
-# The [pyaudio] extra adds a fallback capture backend for the Alpine container,
-# since sounddevice's PortAudio binding can be finicky inside add-ons.
-# Pinned to a release tag so an engine update can't break the add-on unnoticed;
-# bump this tag to adopt a newer engine.
-acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@v1.4.0
+# profile loading, learn-from-recording, and the tuner server. Pulls in numpy +
+# PyYAML. The [pyaudio] extra adds a fallback capture backend for the Alpine
+# container, since sounddevice's PortAudio binding can be finicky in add-ons.
+#
+# DEV PIN: tracking the engine's main commit while the web UI is built across
+# phases. Switch back to a release tag (e.g. @v1.5.0) once the tuner UI lands.
+acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@642ff8b
+
+# Tuner web UI served behind HA Ingress (the engine's `acoustic-engine serve`).
+# fastapi/uvicorn run it; python-multipart handles the /validate upload. (The
+# engine's [tuner] extra also pulls PyAV/ffmpeg for non-WAV decoding — skipped
+# here since the tuner uploads WAV.)
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart>=0.0.6

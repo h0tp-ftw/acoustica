@@ -1,5 +1,5 @@
 name: "Acoustic Alarm Detector"
-version: "10.0.10"
+version: "10.1.0"
 slug: "acoustic_alarm_detector"
 description: "Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into Home Assistant binary sensors"
 url: "https://github.com/h0tp-ftw/alarm-audio-detector"
@@ -13,6 +13,11 @@ boot: auto
 init: false
 audio: true
 homeassistant_api: true
+# Web UI (the acoustic-engine tuner) exposed via HA Ingress as a sidebar panel.
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:sine-wave
+panel_title: "Alarm Tuner"
 map:
   - config:rw
 # Each detector becomes one binary_sensor. Give it a source:

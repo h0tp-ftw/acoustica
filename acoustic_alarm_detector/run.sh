@@ -62,6 +62,21 @@ else
     log_warn "Confirm 'audio: true' for the add-on and that a microphone is attached."
 fi
 
+# --- Tuner web UI (HA Ingress) --------------------------------------------- #
+# Serve the acoustic-engine tuner + profile API behind Ingress, in the
+# background alongside the detector. Best-effort: if it fails, detection still
+# runs. Profiles saved from the UI land in /config/.../profiles, where the
+# detector reads them.
+TUNER_PROFILES_DIR="/config/acoustic_alarm_detector/profiles"
+mkdir -p "$TUNER_PROFILES_DIR"
+if command -v acoustic-engine >/dev/null 2>&1; then
+    acoustic-engine serve --host 0.0.0.0 --port 8099 \
+        --profiles-dir "$TUNER_PROFILES_DIR" &
+    log_info "Tuner UI on ingress port 8099 — open the add-on's sidebar panel."
+else
+    log_warn "acoustic-engine CLI not found; the tuner UI panel is unavailable."
+fi
+
 # --- Run the detector ------------------------------------------------------ #
 cd /app || exit 1
 export PYTHONPATH=/app:$PYTHONPATH
