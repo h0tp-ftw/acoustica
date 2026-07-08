@@ -24,12 +24,28 @@ logging.basicConfig(
 logger = logging.getLogger("acoustic-addon")
 
 
+class _DropMatcherHeartbeat(logging.Filter):
+    """Drop the windowed matcher's per-cycle 'Evaluating N events in window' line.
+
+    It fires every eval cycle (~0.5s) whether or not anything happened, burying
+    the debug lines that matter (tones heard, detections). Everything else on the
+    matcher logger — window config, buffered events, matches — still comes through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "evaluating" not in record.getMessage().lower()
+
+
 def main() -> None:
     config = load_app_config()
 
     if config.debug:
         logging.getLogger().setLevel(logging.DEBUG)
         logging.getLogger("acoustic_engine").setLevel(logging.DEBUG)
+        # Keep debug usable: silence only the matcher's per-cycle heartbeat spam.
+        logging.getLogger("acoustic_engine.analysis.windowed_matcher").addFilter(
+            _DropMatcherHeartbeat()
+        )
 
     logger.info("=" * 60)
     logger.info("Acoustic Alarm Detector add-on")
