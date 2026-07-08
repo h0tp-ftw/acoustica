@@ -1,5 +1,5 @@
 name: "Acoustic Alarm Detector"
-version: "10.1.0"
+version: "10.1.1"
 slug: "acoustic_alarm_detector"
 description: "Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into Home Assistant binary sensors"
 url: "https://github.com/h0tp-ftw/alarm-audio-detector"

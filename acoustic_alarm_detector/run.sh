@@ -69,12 +69,16 @@ fi
 # detector reads them.
 TUNER_PROFILES_DIR="/config/acoustic_alarm_detector/profiles"
 mkdir -p "$TUNER_PROFILES_DIR"
-if command -v acoustic-engine >/dev/null 2>&1; then
-    acoustic-engine serve --host 0.0.0.0 --port 8099 \
+# Launch via `python3 -m`, not the `acoustic-engine` console script: AppArmor
+# grants exec on /usr/bin but the interpreter must *read* a console script
+# (needs 'r'); the module form reads from site-packages, which is already
+# allowed — so this works regardless.
+if python3 -c "import acoustic_engine.tuner.validate" >/dev/null 2>&1; then
+    python3 -m acoustic_engine.tuner.validate --host 0.0.0.0 --port 8099 \
         --profiles-dir "$TUNER_PROFILES_DIR" &
     log_info "Tuner UI on ingress port 8099 — open the add-on's sidebar panel."
 else
-    log_warn "acoustic-engine CLI not found; the tuner UI panel is unavailable."
+    log_warn "Tuner server unavailable (engine + fastapi/uvicorn not importable)."
 fi
 
 # --- Run the detector ------------------------------------------------------ #

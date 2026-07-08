@@ -25,6 +25,11 @@ profile acoustic_alarm_detector flags=(attach_disconnected,mediate_deleted) {
 
   # Python and application
   /usr/bin/python3* ix,
+  # Python console scripts: the interpreter READS the script file, so 'r' is
+  # required ('/usr/bin/** ix' only grants execute). Lets `acoustic-engine ...`
+  # run in the container (e.g. for debugging).
+  /usr/bin/acoustic-engine rix,
+  /usr/bin/alarm-tuner rix,
   /usr/lib/python3*/** r,
   /app/ r,           # read (list) the dir itself — needed so `python -m` can find the package
   /app/** r,
