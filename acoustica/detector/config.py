@@ -35,7 +35,7 @@ def _options_path() -> Path:
 
 
 def _data_dir() -> Path:
-    return Path(os.getenv("ACOUSTIC_DATA_DIR", "/config/acoustic_alarm_detector"))
+    return Path(os.getenv("ACOUSTIC_DATA_DIR", "/config/acoustica"))
 
 
 def _sounds_dir() -> Path:

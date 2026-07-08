@@ -48,7 +48,7 @@ def main() -> None:
         )
 
     logger.info("=" * 60)
-    logger.info("Acoustic Alarm Detector add-on")
+    logger.info("Acoustica add-on")
     logger.info("=" * 60)
 
     if not config.detectors:

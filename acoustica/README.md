@@ -1,4 +1,4 @@
-# 🔊 Acoustic Alarm Detector for Home Assistant
+# 🔊 Acoustica for Home Assistant
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey.svg)](LICENSE)
 &nbsp;**Non-commercial use only.**
@@ -27,7 +27,7 @@ There are **two parts**, both in this repo:
 1. **The add-on** — captures audio and runs the engine. On each detection it fires
    an event on Home Assistant's event bus.
 2. **The custom integration** — listens for those events and exposes one
-   `binary_sensor` per detector, grouped under a single **Acoustic Alarm Detector**
+   `binary_sensor` per detector, grouped under a single **Acoustica**
    device (so it shows up under *Settings → Devices & Services* like any normal
    device). The add-on auto-installs it into `/config`.
 
@@ -35,19 +35,19 @@ There are **two parts**, both in this repo:
 
 1. **Add this repository as a custom add-on repository**
    (*Settings → Add-ons → Add-on Store → ⋮ → Repositories*), paste this repo's
-   URL, then install **Acoustic Alarm Detector**.
+   URL, then install **Acoustica**.
    *(Or copy this folder into `/addons/` for a local add-on.)*
 2. **Start the add-on.** On first start it copies the companion integration into
    `/config/custom_components/` (watch the log for the confirmation).
 3. **Restart Home Assistant Core once** (*Settings → System → Restart*) so the new
    integration is loaded.
 4. **Add the integration:** *Settings → Devices & Services → + Add Integration →
-   “Acoustic Alarm Detector” → Submit*. A device appears with one sensor per
+   “Acoustica” → Submit*. A device appears with one sensor per
    detector. You only do this once — it serves every detector.
 
 With the default options you immediately get two sensors:
-`binary_sensor.acoustic_alarm_detector_smoke_alarm` and
-`binary_sensor.acoustic_alarm_detector_co_alarm`.
+`binary_sensor.acoustica_smoke_alarm` and
+`binary_sensor.acoustica_co_alarm`.
 
 ## Configuration
 
@@ -56,8 +56,8 @@ Each entry under `detectors` becomes one binary sensor. Give it **one** source:
 | Source     | Meaning                                                                 |
 | ---------- | ----------------------------------------------------------------------- |
 | `preset`   | A built-in pattern: `smoke_t3` (smoke) or `co_t4` (carbon monoxide).    |
-| `profile`  | A profile YAML you placed under `/config/acoustic_alarm_detector/profiles/`. |
-| `learn`    | A recording (WAV) under `/config/acoustic_alarm_detector/sounds/` — the add-on turns it into a profile on first run. |
+| `profile`  | A profile YAML you placed under `/config/acoustica/profiles/`. |
+| `learn`    | A recording (WAV) under `/config/acoustica/sounds/` — the add-on turns it into a profile on first run. |
 
 ```yaml
 detectors:
@@ -89,11 +89,11 @@ Three options, easiest first:
 
 1. **Learn from a recording (no DSP knowledge).** Record the sound (e.g. press
    your appliance's done-button), save it as a 16-bit mono WAV under
-   `/config/acoustic_alarm_detector/sounds/`, and add a detector with
+   `/config/acoustica/sounds/`, and add a detector with
    `learn: "myfile.wav"`. The add-on extracts the tone/timing pattern and writes a
    profile to `…/profiles/myfile.yaml` you can inspect and tweak.
 2. **Hand-write a profile YAML.** Copy one of the examples in [`profiles/`](profiles/)
-   into `/config/acoustic_alarm_detector/profiles/`, edit the frequencies/durations,
+   into `/config/acoustica/profiles/`, edit the frequencies/durations,
    and reference it with `profile: "myfile.yaml"`. Bundles (multiple profiles in one
    file) are supported — each becomes its own sensor.
 3. **Use the engine's browser tuner** for visual, validated tuning — see the
@@ -112,7 +112,7 @@ automation:
   - alias: "Smoke alarm alert"
     triggers:
       - trigger: state
-        entity_id: binary_sensor.acoustic_alarm_detector_smoke_alarm
+        entity_id: binary_sensor.acoustica_smoke_alarm
         to: "on"
     actions:
       - action: notify.mobile_app_your_phone
@@ -122,7 +122,7 @@ automation:
 ```
 
 More examples (notifications, lights, TTS) in [`docs/AUTOMATIONS.md`](docs/AUTOMATIONS.md)
-— update the `entity_id`s to the `binary_sensor.acoustic_alarm_detector_*` names.
+— update the `entity_id`s to the `binary_sensor.acoustica_*` names.
 
 ## Troubleshooting
 
@@ -142,7 +142,7 @@ More examples (notifications, lights, TTS) in [`docs/AUTOMATIONS.md`](docs/AUTOM
 ## Project layout
 
 ```
-alarm-audio-detector/
+acoustica/
 ├── config.yaml                 # Add-on manifest + options schema
 ├── Dockerfile, run.sh          # Add-on image + startup (audio + integration install)
 ├── requirements.txt            # Pins acoustic-engine
@@ -150,7 +150,7 @@ alarm-audio-detector/
 │   ├── config.py               #   read options.json → AlarmProfiles
 │   ├── ha_bridge.py            #   detections → HA binary_sensor state
 │   └── main.py                 #   wire ParallelEngine + bridge
-├── custom_components/acoustic_alarm_detector/   # The HA integration (sensors)
+├── custom_components/acoustica/   # The HA integration (sensors)
 ├── profiles/                   # Example profile YAMLs you can copy & tweak
 ├── tests/test_addon.py         # End-to-end tests (no mic / no HA needed)
 └── docs/                       # ALSA setup, automation examples

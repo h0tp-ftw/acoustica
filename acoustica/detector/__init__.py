@@ -1,4 +1,4 @@
-"""Acoustic Alarm Detector add-on.
+"""Acoustica add-on.
 
 A thin bridge around the standalone `acoustic_engine` library:
 

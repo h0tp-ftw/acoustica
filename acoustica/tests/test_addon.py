@@ -117,7 +117,7 @@ def test_config_building():
     """Preset + profile YAML + learned WAV all become detectors."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        data_dir = tmp / "acoustic_alarm_detector"
+        data_dir = tmp / "acoustica"
         (data_dir / "profiles").mkdir(parents=True)
         (data_dir / "sounds").mkdir(parents=True)
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Acoustic Alarm Detector add-on startup.
+# Acoustica add-on startup.
 # Sets up audio (ALSA -> PulseAudio), installs the companion custom integration
 # into /config, then runs the detector. All detection options are read from
 # /data/options.json by the Python app itself.
@@ -15,14 +15,14 @@ DEBUG_MODE="$(jq -r '.debug // false' "$OPTIONS_JSON" 2>/dev/null)"
 # --- Install / update the companion custom integration -------------------- #
 # Gives Home Assistant the binary_sensor entities. Requires one HA Core restart
 # after the first install before the integration can be added.
-INTEGRATION_SRC="/app/custom_components/acoustic_alarm_detector"
-INTEGRATION_DST="/config/custom_components/acoustic_alarm_detector"
+INTEGRATION_SRC="/app/custom_components/acoustica"
+INTEGRATION_DST="/config/custom_components/acoustica"
 if [ -d "$INTEGRATION_SRC" ]; then
     mkdir -p /config/custom_components
     if cp -r "$INTEGRATION_SRC" "/config/custom_components/" 2>/dev/null; then
         log_info "Custom integration installed/updated at $INTEGRATION_DST"
         log_info "If this is the first install, restart Home Assistant Core once, then add"
-        log_info "the 'Acoustic Alarm Detector' integration under Settings -> Devices & Services."
+        log_info "the 'Acoustica' integration under Settings -> Devices & Services."
     else
         log_warn "Could not copy the custom integration into /config/custom_components"
     fi
@@ -67,7 +67,7 @@ fi
 # background alongside the detector. Best-effort: if it fails, detection still
 # runs. Profiles saved from the UI land in /config/.../profiles, where the
 # detector reads them.
-TUNER_PROFILES_DIR="/config/acoustic_alarm_detector/profiles"
+TUNER_PROFILES_DIR="/config/acoustica/profiles"
 mkdir -p "$TUNER_PROFILES_DIR"
 # Launch via `python3 -m`, not the `acoustic-engine` console script: AppArmor
 # grants exec on /usr/bin but the interpreter must *read* a console script
@@ -99,14 +99,14 @@ if ! python3 -c "import detector" 2>/dev/null; then
 fi
 
 if [ "$DEBUG_MODE" = "true" ]; then
-    log_info "Starting Acoustic Alarm Detector (debug: container stays alive on exit)..."
+    log_info "Starting Acoustica (debug: container stays alive on exit)..."
     python3 -u -m detector.main
     rc=$?
     log_warn "detector exited (rc=$rc). DEBUG mode: keeping the container alive so you can"
-    log_warn "  docker exec -it addon_581b527c_acoustic_alarm_detector bash"
+    log_warn "  docker exec -it \$(docker ps --format '{{.Names}}' | grep acoustica) bash"
     log_warn "and run audio diagnostics in the real environment. Stop the add-on to end."
     exec tail -f /dev/null
 else
-    log_info "Starting Acoustic Alarm Detector..."
+    log_info "Starting Acoustica..."
     exec python3 -u -m detector.main
 fi

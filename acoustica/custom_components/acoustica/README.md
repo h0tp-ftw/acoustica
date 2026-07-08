@@ -1,23 +1,23 @@
-# Acoustic Alarm Detector — Home Assistant integration
+# Acoustica — Home Assistant integration
 
-The companion integration for the **Acoustic Alarm Detector add-on**. It exposes
+The companion integration for the **Acoustica add-on**. It exposes
 one `binary_sensor` per detector the add-on reports, all grouped under a single
-**Acoustic Alarm Detector** device.
+**Acoustica** device.
 
 You normally don't install this by hand — the add-on copies it into
 `/config/custom_components/` on first start. After that:
 
 1. Restart Home Assistant Core once.
-2. *Settings → Devices & Services → + Add Integration → “Acoustic Alarm Detector”*.
+2. *Settings → Devices & Services → + Add Integration → “Acoustica”*.
 
 ## How it works
 
-- The add-on does the listening and fires an `acoustic_alarm_detector_event` on
+- The add-on does the listening and fires an `acoustica_event` on
   Home Assistant's event bus (`{name, state, device_class}`) via the Supervisor
   REST proxy — no MQTT broker, no websocket auth.
 - This integration listens for that event and updates the matching sensor. Sensors
   are created from the add-on's discovery file
-  (`/config/acoustic_alarm_detector/profiles.json`) at setup, and any detector not
+  (`/config/acoustica/profiles.json`) at setup, and any detector not
   yet seen is added automatically the first time its event arrives.
 - One config entry serves every detector (single instance).
 

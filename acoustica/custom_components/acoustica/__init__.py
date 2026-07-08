@@ -1,6 +1,6 @@
-"""The Acoustic Alarm Detector integration.
+"""The Acoustica integration.
 
-A small companion to the Acoustic Alarm Detector add-on. The add-on does the
+A small companion to the Acoustica add-on. The add-on does the
 listening and fires an event on Home Assistant's event bus whenever a detector
 turns on or off; this integration turns those events into binary_sensor entities,
 grouped under a single device.
@@ -26,13 +26,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Acoustic Alarm Detector from a config entry."""
-    _LOGGER.info("Setting up Acoustic Alarm Detector")
+    """Set up Acoustica from a config entry."""
+    _LOGGER.info("Setting up Acoustica")
 
     # Shared state for this entry. The binary_sensor platform fills in
     # `add_entities` and `entities`; the event handler below reads/updates them.
     store = {
-        "entities": {},          # name -> AcousticAlarmBinarySensor
+        "entities": {},          # name -> AcousticaBinarySensor
         "states": {},            # name -> bool (last known, for late-added entities)
         "device_classes": {},    # name -> str
         "add_entities": None,    # AddEntitiesCallback, set by the platform
@@ -61,9 +61,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             add_entities = store["add_entities"]
             if add_entities is None:
                 return
-            from .binary_sensor import AcousticAlarmBinarySensor
+            from .binary_sensor import AcousticaBinarySensor
 
-            entity = AcousticAlarmBinarySensor(entry.entry_id, name, device_class, state)
+            entity = AcousticaBinarySensor(entry.entry_id, name, device_class, state)
             store["entities"][name] = entity
             add_entities([entity])
         else:

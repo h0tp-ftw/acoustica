@@ -1,4 +1,4 @@
-"""Binary sensor platform for Acoustic Alarm Detector.
+"""Binary sensor platform for Acoustica.
 
 One binary_sensor per configured detector, all grouped under a single device.
 Entities are created from the add-on's discovery file at setup and, for any
@@ -65,7 +65,7 @@ async def async_setup_entry(
             continue
         device_class = profile.get("device_class") or DEFAULT_DEVICE_CLASS
         state = bool(store["states"].get(name, False))
-        entity = AcousticAlarmBinarySensor(entry.entry_id, name, device_class, state)
+        entity = AcousticaBinarySensor(entry.entry_id, name, device_class, state)
         store["entities"][name] = entity
         new_entities.append(entity)
 
@@ -84,7 +84,7 @@ def _to_device_class(value: str) -> BinarySensorDeviceClass:
         return BinarySensorDeviceClass.SOUND
 
 
-class AcousticAlarmBinarySensor(BinarySensorEntity):
+class AcousticaBinarySensor(BinarySensorEntity):
     """A single acoustic detector exposed as a binary sensor."""
 
     _attr_has_entity_name = True

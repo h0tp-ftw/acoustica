@@ -1,4 +1,4 @@
-"""Config flow for Acoustic Alarm Detector.
+"""Config flow for Acoustica.
 
 A single, instance-wide entry — there are no per-detector settings here. Detectors
 are configured in the add-on; this just creates the device the add-on reports into.
@@ -16,8 +16,8 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import DEVICE_NAME, DOMAIN
 
 
-class AcousticAlarmDetectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Acoustic Alarm Detector."""
+class AcousticaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Acoustica."""
 
     VERSION = 1
 

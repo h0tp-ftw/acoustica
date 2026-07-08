@@ -27,7 +27,7 @@ from typing import Dict
 logger = logging.getLogger(__name__)
 
 # Event the add-on fires and the custom integration listens for.
-EVENT_TYPE = "acoustic_alarm_detector_event"
+EVENT_TYPE = "acoustica_event"
 
 
 class HABridge:
@@ -59,7 +59,7 @@ class HABridge:
         self.token = token if token is not None else os.getenv("SUPERVISOR_TOKEN", "")
         self.profiles_path = Path(
             profiles_path
-            or os.getenv("PROFILES_JSON", "/config/acoustic_alarm_detector/profiles.json")
+            or os.getenv("PROFILES_JSON", "/config/acoustica/profiles.json")
         )
 
         self._lock = threading.Lock()

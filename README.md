@@ -1,4 +1,4 @@
-# Acoustic Alarm Detector — Home Assistant add-on repository
+# Acoustica — Home Assistant add-on repository
 
 Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into
 Home Assistant binary sensors.
@@ -6,11 +6,11 @@ Home Assistant binary sensors.
 ## Install
 
 1. Home Assistant → **Settings → Add-ons → Add-on Store → ⋮ → Repositories**.
-2. Add this URL: `https://github.com/h0tp-ftw/alarm-audio-detector`
-3. Install **Acoustic Alarm Detector** from the store and start it.
+2. Add this URL: `https://github.com/h0tp-ftw/acoustica`
+3. Install **Acoustica** from the store and start it.
 
-The add-on itself lives in [`acoustic_alarm_detector/`](acoustic_alarm_detector/) —
-see its [README](acoustic_alarm_detector/README.md) for configuration.
+The add-on itself lives in [`acoustica/`](acoustica/) —
+see its [README](acoustica/README.md) for configuration.
 
 ## License
 

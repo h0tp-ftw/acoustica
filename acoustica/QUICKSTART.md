@@ -6,20 +6,20 @@ Get a smoke + CO alarm sensor running in a few minutes. Full details in
 ## 1. Install & start the add-on
 
 - *Settings → Add-ons → Add-on Store → ⋮ → Repositories* → add this repo's URL.
-- Install **Acoustic Alarm Detector**, then **Start** it.
+- Install **Acoustica**, then **Start** it.
 - The add-on copies its companion integration into `/config/custom_components/`
   (check the log).
 
 ## 2. Load the integration
 
 - **Restart Home Assistant Core once** (*Settings → System → Restart*).
-- *Settings → Devices & Services → + Add Integration → “Acoustic Alarm Detector”
+- *Settings → Devices & Services → + Add Integration → “Acoustica”
   → Submit*.
 
-You now have an **Acoustic Alarm Detector** device with:
+You now have an **Acoustica** device with:
 
-- `binary_sensor.acoustic_alarm_detector_smoke_alarm`
-- `binary_sensor.acoustic_alarm_detector_co_alarm`
+- `binary_sensor.acoustica_smoke_alarm`
+- `binary_sensor.acoustica_co_alarm`
 
 ## 3. Test it
 
@@ -37,12 +37,12 @@ In the add-on **Configuration** tab, add a detector:
 ```yaml
 detectors:
   - name: "Washing Machine"
-    learn: "washer.wav"        # put the WAV in /config/acoustic_alarm_detector/sounds/
+    learn: "washer.wav"        # put the WAV in /config/acoustica/sounds/
     device_class: "running"
 ```
 
 or point `profile:` at a YAML you placed in
-`/config/acoustic_alarm_detector/profiles/` (copy an example from
+`/config/acoustica/profiles/` (copy an example from
 [`profiles/`](profiles/)). Restart the add-on after changing detectors; reload the
 integration (or restart Core) to pick up brand-new sensors.
 
