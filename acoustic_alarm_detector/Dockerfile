@@ -53,7 +53,7 @@ COPY custom_components/ ./custom_components/
 LABEL \
     io.hass.name="Acoustic Alarm Detector" \
     io.hass.description="Listen on a microphone and detect alarms/beeps as Home Assistant binary sensors" \
-    io.hass.version="10.1.2" \
+    io.hass.version="10.1.3" \
     io.hass.type="addon" \
     io.hass.arch="aarch64|amd64|armhf|armv7"
 
