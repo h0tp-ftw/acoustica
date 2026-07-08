@@ -5,7 +5,7 @@
 #
 # DEV PIN: tracking the engine's main commit while the web UI is built across
 # phases. Switch back to a release tag (e.g. @v1.5.0) once the tuner UI lands.
-acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@642ff8b
+acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@cea72d2
 
 # Tuner web UI served behind HA Ingress (the engine's `acoustic-engine serve`).
 # fastapi/uvicorn run it; python-multipart handles the /validate upload. (The
