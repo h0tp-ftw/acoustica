@@ -1,43 +1,44 @@
-name: "Acoustic Alarm Detector v9"
-version: "9.0.0"
+name: "Acoustic Alarm Detector"
+version: "9.5.0"
 slug: "alarm_detector_v9"
-description: "Acoustic smoke and CO alarm detection with native HA integration"
-url: "https://github.com/yourusername/alarm-audio-detector"
+description: "Local acoustic smoke and CO alarm detection"
+url: "https://github.com/h0tp-ftw/alarm-audio-detector"
 arch:
   - aarch64
   - amd64
-  - armv7
-  - armhf
 startup: application
 boot: auto
 init: false
 apparmor: true
 audio: true
-hassio_api: true
 homeassistant_api: true
-map:
-  - config:rw
+discovery:
+  - acoustic_alarm_detector
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:waveform
+panel_title: Alarm Setup
+panel_admin: true
+stage: experimental
 options:
   device_name: "smoke_alarm_detector"
   alarm_type: "smoke"
+  profile_id: ""
+  audio_device_index: -1
   target_frequency: 3133
   frequency_tolerance: 250
-  min_magnitude_threshold: 0.25
-  beep_duration_min: 0.1
-  beep_duration_max: 1.5
-  pause_duration_min: 0.05
-  pause_duration_max: 2.5
-  confirmation_cycles: 1
+  min_magnitude_threshold: 0.05
+  confirmation_cycles: 2
+  reset_timeout: 10.0
   debug_mode: false
 schema:
   device_name: str
-  alarm_type: list(smoke|co)
+  alarm_type: list(smoke|co|safety)
+  profile_id: str
+  audio_device_index: int
   target_frequency: int
   frequency_tolerance: int
   min_magnitude_threshold: float
-  beep_duration_min: float
-  beep_duration_max: float
-  pause_duration_min: float
-  pause_duration_max: float
   confirmation_cycles: int
+  reset_timeout: float
   debug_mode: bool

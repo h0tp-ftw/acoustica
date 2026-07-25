@@ -3,7 +3,7 @@
 profile alarm_detector_v9 flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
-  # S6-Overlay
+  # Home Assistant base image / s6-overlay
   /init ix,
   /bin/** ix,
   /usr/bin/** ix,
@@ -16,52 +16,30 @@ profile alarm_detector_v9 flags=(attach_disconnected,mediate_deleted) {
   /run/{,**} rwk,
   /dev/tty rw,
 
-  # Bashio
-  /usr/lib/bashio/** ix,
-  /tmp/** rwk,
-
-  # Add-on data
+  # Add-on options and future add-on-owned profiles
   /data/** rw,
 
-  # Python and application
-  /usr/bin/python3* ix,
-  /usr/lib/python3*/** r,
+  # Application and Python runtime
   /app/** r,
   /app/run.sh rix,
-
-  # Audio access (PulseAudio)
-  /run/audio/pulse.sock rw,
-  /root/.config/pulse/** rw,
-
-  # Network for WebSocket to Home Assistant
-  network inet stream,
-  network inet6 stream,
-
-  # Config directory access (for auto-installing integration)
-  /config/** rw,
-  /homeassistant/** rw,
-
-  # System libraries
+  /usr/bin/python3* ix,
+  /usr/lib/python3*/** r,
   /lib/** rm,
   /usr/lib/** rm,
 
-  # Device access for audio
-  /dev/snd/* rw,
-  /dev/audio* rw,
+  # Home Assistant audio socket and temporary ALSA configuration
+  /run/audio/pulse.sock rw,
+  /tmp/** rwk,
+  /var/tmp/** rw,
 
-  # Proc and sys for audio detection
-  /proc/*/status r,
-  /proc/asound/** r,
-  /sys/devices/** r,
+  # Local REST event publishing through the Supervisor proxy
+  network inet stream,
+  network inet6 stream,
 
-  # DNS resolution
+  # Name resolution
   /etc/nsswitch.conf r,
   /etc/hosts r,
   /etc/resolv.conf r,
   /etc/host.conf r,
   /etc/gai.conf r,
-
-  # Temporary files
-  /tmp/** rw,
-  /var/tmp/** rw,
 }

@@ -1,111 +1,208 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Record, analyze, and generate alarm patterns with the Alarm Audio Tuner. A powerful tool for acoustic alarm configuration." />
-    <title>Alarm Audio Tuner</title>
-    
-    <!-- Fonts: Inter for UI, JetBrains Mono for code -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Guided setup for Acoustic Alarm Detector profiles"
+    />
+    <title>Acoustic Alarm Setup</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-container">
-      <header class="app-header">
-        <h1><span class="icon">🎵</span> Alarm Audio Tuner</h1>
-        <p class="subtitle">Record, analyze, and generate alarm sound patterns with precision</p>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Acoustic Alarm Detector</p>
+          <h1>Learn an alarm sound</h1>
+          <p>
+            Record several complete cycles. The add-on analyzes the recording
+            with the same engine used for live detection.
+          </p>
+        </div>
+        <span id="serviceStatus" class="status status-waiting">Connecting…</span>
       </header>
 
-      <main class="main-content">
-        <!-- Left Panel: Audio Input & Visualization -->
-        <section class="panel audio-panel">
-          <h2>Audio Input</h2>
+      <section class="notice" aria-label="Safety notice">
+        This tool supplements certified alarms. Keep every smoke and CO alarm
+        installed, audible, tested, and maintained.
+      </section>
 
-          <div class="controls-row">
-            <button id="recordBtn" class="btn btn-record">
-              <span class="icon">⏺</span> Record
-            </button>
-            <button id="stopBtn" class="btn btn-stop" disabled>
-              <span class="icon">⏹</span> Stop
-            </button>
-            <button id="playbackBtn" class="btn btn-play" disabled>
-              <span class="icon">▶</span> Playback
-            </button>
-            <button id="analyzeBtn" class="btn btn-analyze" disabled>
-              <span class="icon">✨</span> Auto-Tune
-            </button>
+      <section class="card status-dashboard" aria-live="polite">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live health</p>
+            <h2>Detector status</h2>
           </div>
+          <button id="refreshStatus">Refresh</button>
+        </div>
+        <dl class="status-grid">
+          <div><dt>Audio</dt><dd id="runtimeListening">Checking…</dd></div>
+          <div><dt>Home Assistant</dt><dd id="runtimeHomeAssistant">Checking…</dd></div>
+          <div><dt>Alarm state</dt><dd id="runtimeAlarmState">Checking…</dd></div>
+          <div><dt>Last detection</dt><dd id="runtimeLastDetection">None</dd></div>
+        </dl>
+        <p id="runtimeGuidance" class="helper">Reading runtime health…</p>
+      </section>
 
-          <div class="visualization-container">
-            <h3>Waveform</h3>
-            <canvas id="waveformCanvas" width="600" height="100"></canvas>
+      <section class="card step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h2>Name the profile</h2>
+          <p>
+            Use a short ID such as <code>hallway_smoke</code>. You will select
+            this same ID in the add-on and Home Assistant integration.
+          </p>
+          <label for="profileId">Profile ID</label>
+          <input
+            id="profileId"
+            type="text"
+            value="hallway_alarm"
+            pattern="[a-z0-9_]+"
+            autocomplete="off"
+          />
+        </div>
+      </section>
 
-            <h3>Spectrogram (Live)</h3>
-            <canvas id="spectrogramCanvas" width="600" height="150"></canvas>
-
-            <h3>Detected Events</h3>
-            <canvas id="eventsCanvas" width="600" height="100"></canvas>
+      <section class="card step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h2>Record the alarm</h2>
+          <p>
+            Confirm the microphone connected to Home Assistant is near the alarm.
+            Press Record, then use the alarm's test button. Capture at least two
+            complete repetitions before stopping.
+          </p>
+          <div class="microphone-controls">
+            <label for="microphoneSelect">Microphone</label>
+            <select id="microphoneSelect" disabled>
+              <option>Loading microphones…</option>
+            </select>
+            <div class="button-row">
+              <button id="refreshMicrophones">Refresh list</button>
+              <button id="applyMicrophone" class="primary" disabled>
+                Use this microphone
+              </button>
+            </div>
+            <p id="microphoneStatus" class="helper">
+              Changing the microphone restarts the add-on to reopen the audio stream.
+            </p>
           </div>
-
-          <div class="status-bar">
-            <span id="statusText">Ready to record</span>
-            <span id="durationText">0.0s</span>
+          <div class="meter" aria-label="Microphone level">
+            <span id="levelBar"></span>
           </div>
-        </section>
-
-        <!-- Right Panel: Ruleset Editor & Generator -->
-        <section class="panel ruleset-panel">
-          <h2>Alarm Profile</h2>
-
-          <div class="profile-form">
-            <label>
-              Profile Name
-              <input type="text" id="profileName" value="NewAlarm" placeholder="Enter profile name..." />
-            </label>
-
-            <label>
-              Confirmation Cycles
-              <input
-                type="number"
-                id="confirmCycles"
-                value="2"
-                min="1"
-                max="10"
-              />
-            </label>
+          <div class="button-row">
+            <button id="recordButton" class="primary">Record</button>
+            <button id="stopButton" disabled>Stop</button>
+            <button id="playButton" disabled>Play recording</button>
           </div>
+          <p id="recordingStatus" class="helper">No recording yet.</p>
+        </div>
+      </section>
 
-          <h3>Segments (Pattern Definition)</h3>
-          <div id="segmentList" class="segment-list">
-            <!-- Segments added dynamically -->
+      <section class="card step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h2>Analyze the sample</h2>
+          <p>
+            Analysis happens locally inside the add-on. The recording is used
+            only for this request and is deleted immediately afterward.
+          </p>
+          <button id="analyzeButton" class="primary" disabled>
+            Analyze recording
+          </button>
+
+          <div id="analysisPanel" class="result hidden" aria-live="polite">
+            <div class="result-heading">
+              <h3>Sample result</h3>
+              <span id="qualityBadge" class="quality"></span>
+            </div>
+            <ul id="messageList"></ul>
+            <dl id="metrics"></dl>
+            <details>
+              <summary>Advanced profile YAML</summary>
+              <div class="yaml-actions">
+                <button id="copyYamlButton">Copy YAML</button>
+              </div>
+              <pre id="yamlOutput"></pre>
+            </details>
           </div>
-          <button id="addSegmentBtn" class="btn btn-add">+ Add Segment</button>
+        </div>
+      </section>
 
-          <div class="actions-row">
-            <button id="generateSoundBtn" class="btn btn-generate">
-              🔊 Generate Sample Sound
-            </button>
-            <button id="exportConfigBtn" class="btn btn-export">
-              📋 Export Config
-            </button>
+      <section class="card step">
+        <div class="step-number">4</div>
+        <div class="step-content">
+          <h2>Approve and save</h2>
+          <p>
+            Strong samples can be saved immediately. Samples marked “Review”
+            require an explicit confirmation.
+          </p>
+          <label class="check-row">
+            <input id="acceptReview" type="checkbox" />
+            Save this sample even though it needs review
+          </label>
+          <label class="check-row">
+            <input id="overwriteProfile" type="checkbox" />
+            Replace an existing profile with this ID
+          </label>
+          <button id="saveButton" class="primary" disabled>Save profile</button>
+          <div id="saveResult" class="save-result hidden"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Stored in add-on data</p>
+            <h2>Saved profiles</h2>
           </div>
+          <button id="refreshProfiles">Refresh</button>
+        </div>
+        <div class="activation-controls">
+          <div>
+            <p class="eyebrow">Currently active</p>
+            <strong id="activeProfile">Loading active profile…</strong>
+            <p id="activationStatus" class="helper">
+              Activating a saved profile updates the detector immediately and
+              advertises it to Home Assistant for confirmation.
+            </p>
+          </div>
+          <label for="activationCategory">
+            Home Assistant category
+            <select id="activationCategory">
+              <option value="smoke">Smoke alarm</option>
+              <option value="co">CO alarm</option>
+              <option value="safety">Other safety alarm</option>
+            </select>
+          </label>
+        </div>
 
-          <h3>Extracted Config (YAML)</h3>
-          <pre id="configOutput" class="config-output"># Define segments above to generate config</pre>
-        </section>
-      </main>
+        <div id="profileList" class="profile-list">
+          <p class="helper">Loading profiles…</p>
+        </div>
 
-      <footer class="app-footer">
-        <p>Universal Alarm Engine Tuner v1.0 — Crafted with care</p>
-      </footer>
-    </div>
+        <div id="testPanel" class="live-test hidden" aria-live="polite">
+          <div>
+            <strong id="testTitle">Live profile test</strong>
+            <p id="testStatus">Waiting to start.</p>
+          </div>
+          <button id="stopTestButton" class="danger">Stop test</button>
+        </div>
+
+        <details class="import-panel">
+          <summary>Import an existing engine YAML profile</summary>
+          <label for="importFile">Profile YAML</label>
+          <input id="importFile" type="file" accept=".yaml,.yml,text/yaml" />
+          <label for="importId">Optional replacement ID</label>
+          <input id="importId" type="text" placeholder="leave blank to use YAML name" />
+          <button id="importButton">Import profile</button>
+        </details>
+      </section>
+    </main>
 
     <script src="audio-engine.js"></script>
-    <script src="visualizer.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
