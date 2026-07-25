@@ -5,12 +5,12 @@ from typing import List, Union
 from pathlib import Path
 
 # Import from the external library
-from acoustic_alarm_engine.profiles import (
+from acoustic_engine.models import AlarmProfile
+from acoustic_engine.profiles import (
     load_profile_from_yaml as lib_load_profile,
     load_profiles_from_yaml as lib_load_profiles,
-    save_profile_to_yaml as lib_save_profile
+    save_profile_to_yaml as lib_save_profile,
 )
-from acoustic_alarm_engine.models import AlarmProfile
 
 logger = logging.getLogger(__name__)
 

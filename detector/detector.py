@@ -1,179 +1,151 @@
-"""Core audio detection logic using Universal Engine pipeline.
+"""Thin add-on wrapper around the published acoustic-engine pipeline."""
 
-This module orchestrates:
-1. SpectralMonitor (DSP Analysis)
-2. EventGenerator (Peak -> Event conversion)
-3. SequenceMatcher (Pattern matching)
-"""
+from __future__ import annotations
+
+import logging
+import threading
+from collections.abc import Callable
+from typing import Protocol
 
 import numpy as np
-import time
-import logging
-from typing import Callable, Optional, List, Union
-
-# New Universal Engine Components (from external library)
-from acoustic_alarm_engine.models import AlarmProfile, Range, Segment
-from acoustic_alarm_engine.dsp import SpectralMonitor
-from acoustic_alarm_engine.generator import EventGenerator
-from acoustic_alarm_engine.matcher import SequenceMatcher
-from acoustic_alarm_engine.events import PatternMatchEvent
-
-# Legacy config import
-from detector.config import DetectorProfile
+from acoustic_engine import Engine
+from acoustic_engine.config import AudioSettings
+from acoustic_engine.events import PatternMatchEvent
+from acoustic_engine.models import AlarmProfile
 
 logger = logging.getLogger(__name__)
 
 
-class PatternDetector:
-    """Acoustic alarm detector using the external Acoustic Alarm Engine."""
+class _Timer(Protocol):
+    daemon: bool
+
+    def start(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+
+TimerFactory = Callable[[float, Callable[[], None]], _Timer]
+DetectionCallback = Callable[[bool], None]
+
+
+class _MatchForwardingEngine(Engine):
+    """Use acoustic-engine's pipeline while forwarding every confirmed match."""
 
     def __init__(
         self,
-        config_object: Union[
-            DetectorProfile, List[DetectorProfile], List[AlarmProfile]
-        ],
-        sample_rate: int,
-        chunk_size: int,
-        on_detection: Optional[Callable[[bool], None]] = None,
-    ):
-        """Initialize the detector pipeline.
+        profile: AlarmProfile,
+        audio_config: AudioSettings,
+        on_match: Callable[[PatternMatchEvent], None],
+    ) -> None:
+        self._match_handler = on_match
+        super().__init__(profiles=[profile], audio_config=audio_config)
 
-        Args:
-            config_object: Configuration profile(s)
-            sample_rate: Audio sample rate
-            chunk_size: Audio chunk size
-            on_detection: Callback for alarm state changes
-        """
-        self.sample_rate = sample_rate
-        self.chunk_size = chunk_size
+    def _trigger_alarm(self, match: PatternMatchEvent) -> None:
+        """Forward every match; add-on state management owns the clear deadline."""
+
+        self._match_handler(match)
+
+
+class PatternDetector:
+    """Process audio and expose stable active/clear state callbacks."""
+
+    def __init__(
+        self,
+        profile: AlarmProfile,
+        audio_config: AudioSettings,
+        on_detection: DetectionCallback | None = None,
+        *,
+        timer_factory: TimerFactory = threading.Timer,
+    ) -> None:
+        self.profile = profile
+        self.name = profile.name
         self.on_detection = on_detection
         self.alarm_active = False
 
-        # Convert Legacy Config if necessary
-        self.profiles: List[AlarmProfile] = []
-
-        # Helper to normalize input to a list
-        configs = config_object if isinstance(config_object, list) else [config_object]
-
-        for p in configs:
-            if isinstance(p, DetectorProfile):
-                self.profiles.append(self._convert_legacy_profile(p))
-            elif isinstance(p, AlarmProfile):
-                self.profiles.append(p)
-            else:
-                logger.warning(f"Unknown config type: {type(p)}")
-
-        if self.profiles:
-            self.name = (
-                self.profiles[0].name if len(self.profiles) == 1 else "CombinedDetector"
-            )
-        else:
-            self.name = "EmptyDetector"
-
-        # Initialize Pipeline Components
-        self.dsp = SpectralMonitor(sample_rate, chunk_size)
-        self.generator = EventGenerator(sample_rate, chunk_size)
-        self.matcher = SequenceMatcher(self.profiles)
-
-        # Timing context
-        self.current_time = 0.0
-
-        logger.info(
-            f"✅ Acoustic Engine initialized [{self.name}] with {len(self.profiles)} profile(s)."
+        self._timer_factory = timer_factory
+        self._clear_timer: _Timer | None = None
+        self._generation = 0
+        self._lock = threading.Lock()
+        self._engine = _MatchForwardingEngine(
+            profile=profile,
+            audio_config=audio_config,
+            on_match=self._handle_match,
         )
 
-    def _convert_legacy_profile(self, p: DetectorProfile) -> AlarmProfile:
-        """Convert a legacy config into a Universal AlarmProfile."""
-        segments = []
-
-        # We need to construct [Tone, Silence] * N
-        # Most alarms are T3/T4 which repeat a pattern
-        for i in range(p.beep_count):
-            # Add Tone Step
-            segments.append(
-                Segment(
-                    type="tone",
-                    frequency=Range(
-                        p.target_frequency - p.frequency_tolerance,
-                        p.target_frequency + p.frequency_tolerance,
-                    ),
-                    duration=Range(p.beep_duration_min, p.beep_duration_max),
-                    min_magnitude=p.min_magnitude_threshold,
-                )
-            )
-            # Add Silence Step (Inter-beep pause)
-            # Don't add silence after the last beep if it's meant to be the end of pattern
-            if i < p.beep_count - 1:
-                segments.append(
-                    Segment(
-                        type="silence",
-                        duration=Range(p.pause_duration_min, p.pause_duration_max),
-                    )
-                )
-
-        return AlarmProfile(
-            name=p.name,
-            segments=segments,
-            confirmation_cycles=p.confirmation_cycles,
-            reset_timeout=p.pattern_timeout,
-        )
+        logger.info("Acoustic engine ready for profile %s", profile.name)
 
     def process(self, audio_chunk: np.ndarray) -> bool:
-        """Process an audio chunk through the pipeline."""
+        """Process one mono int16 audio chunk."""
 
-        # 0. Time Keeping (approximate based on chunk flow)
-        chunk_duration = self.chunk_size / self.sample_rate
-        self.current_time += chunk_duration
+        return self._engine.process_chunk(audio_chunk)
 
-        # 1. DSP Analysis (Get Peaks)
-        peaks = self.dsp.process(audio_chunk)
+    def _handle_match(self, match: PatternMatchEvent) -> None:
+        """Activate once and extend the clear deadline on every later match."""
 
-        # 2. Event Generation (Get Events)
-        events = self.generator.process(peaks, self.current_time)
+        should_notify_active = False
+        with self._lock:
+            self._generation += 1
+            generation = self._generation
 
-        # 3. Pattern Matching (Check Events)
-        detected = False
+            if self._clear_timer is not None:
+                self._clear_timer.cancel()
 
-        if events:
-            for event in events:
-                matches = self.matcher.process(event)
-                if matches:
-                    self._trigger_alarm(matches[0])
-                    detected = True
+            if not self.alarm_active:
+                self.alarm_active = True
+                should_notify_active = True
 
-        return detected
-
-    def _trigger_alarm(self, match: PatternMatchEvent) -> None:
-        """Trigger alarm detection."""
-        # Only trigger if not already active to avoid spamming callbacks
-        logger.info(f"🔔 MATCH: {match.profile_name} (Cycle {match.cycle_count})")
-
-        if not self.alarm_active:
-            logger.critical("=" * 60)
-            logger.critical(
-                f"🚨 ALARM DETECTED: [{match.profile_name.upper()}] 🚨"
+            timer = self._timer_factory(
+                self.profile.reset_timeout,
+                lambda: self._clear_if_current(generation),
             )
-            logger.critical(f"Confidence: High | Time: {time.strftime('%H:%M:%S')}")
-            logger.critical("=" * 60)
+            timer.daemon = True
+            self._clear_timer = timer
 
-            self.alarm_active = True
-            if self.on_detection:
-                self.on_detection(True)
+        if should_notify_active:
+            self._notify(True)
+        timer.start()
 
-            # Auto-reset logic (simple timer for now)
-            import threading
+        logger.warning(
+            "Alarm match: %s (cycle %s); clear deadline extended by %.1fs",
+            match.profile_name,
+            match.cycle_count,
+            self.profile.reset_timeout,
+        )
 
-            def clear():
-                # Allow 10 seconds for the alarm to be "cleared" if no more patterns match
-                time.sleep(10)
-                if self.alarm_active:
-                    logger.info(f"[{self.name}] Pattern lost. Resetting alarm state.")
-                    self.alarm_active = False
-                    if self.on_detection:
-                        self.on_detection(False)
+    def _clear_if_current(self, generation: int) -> None:
+        should_notify_clear = False
+        with self._lock:
+            if generation != self._generation or not self.alarm_active:
+                return
 
-            threading.Thread(target=clear, daemon=True).start()
+            self.alarm_active = False
+            self._clear_timer = None
+            should_notify_clear = True
 
+        if should_notify_clear:
+            logger.info("Profile %s is clear", self.profile.name)
+            self._notify(False)
 
-# Legacy alias
-AlarmDetector = PatternDetector
+    def close(self) -> None:
+        """Cancel pending work and publish a final clear state once."""
+
+        should_notify_clear = False
+        with self._lock:
+            self._generation += 1
+            if self._clear_timer is not None:
+                self._clear_timer.cancel()
+                self._clear_timer = None
+            if self.alarm_active:
+                self.alarm_active = False
+                should_notify_clear = True
+
+        if should_notify_clear:
+            self._notify(False)
+
+    def _notify(self, detected: bool) -> None:
+        if self.on_detection is None:
+            return
+        try:
+            self.on_detection(detected)
+        except Exception:
+            logger.exception("Detection callback failed for profile %s", self.profile.name)

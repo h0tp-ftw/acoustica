@@ -1,105 +1,82 @@
-"""
-Test script for verifying Universal Alarm Engine.
-Generates synthetic audio patterns to test matching logic.
-"""
+"""Deterministic end-to-end tests through the published engine pipeline."""
+
+from __future__ import annotations
 
 import numpy as np
-import logging
+import pytest
+
+from detector.config import DetectorConfig
 from detector.detector import PatternDetector
-from acoustic_alarm_engine.models import AlarmProfile, Segment, Range
-
-# Configure logging to stdout
-logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
 
-def generate_tone(sample_rate, duration, frequency, amplitude=0.5):
-    t = np.linspace(0, duration, int(sample_rate * duration), False)
-    return amplitude * np.sin(2 * np.pi * frequency * t)
+class PassiveTimer:
+    def __init__(self, interval, function) -> None:
+        self.interval = interval
+        self.function = function
+        self.daemon = False
+        self.cancelled = False
+
+    def start(self) -> None:
+        return None
+
+    def cancel(self) -> None:
+        self.cancelled = True
 
 
-def generate_silence(sample_rate, duration):
-    return np.zeros(int(sample_rate * duration))
-
-
-def run_test():
-    SAMPLE_RATE = 44100
-    CHUNK_SIZE = 4096
-
-    print("--- Defining Universal Profile (Complex Siren) ---")
-    # Pattern: 1kHz (0.5s) -> Silence (0.2s) -> 2kHz (0.5s) -> Silence (1.0s)
-    # 2 Cycles required
-
-    profile = AlarmProfile(
-        name="ComplexSiren",
-        confirmation_cycles=2,
-        segments=[
-            Segment(type="tone", frequency=Range(900, 1100), duration=Range(0.4, 0.6)),
-            Segment(type="silence", duration=Range(0.1, 0.3)),
-            Segment(type="tone", frequency=Range(1900, 2100), duration=Range(0.4, 0.6)),
-            Segment(type="silence", duration=Range(0.8, 1.2)),
-        ],
+def _tone(sample_rate: int, duration: float, frequency: float) -> np.ndarray:
+    sample_count = round(sample_rate * duration)
+    timeline = np.arange(sample_count, dtype=np.float64) / sample_rate
+    return (0.8 * np.sin(2 * np.pi * frequency * timeline) * 32767).astype(
+        np.int16
     )
 
-    detector = PatternDetector(profile, SAMPLE_RATE, CHUNK_SIZE)
 
-    print("\n--- Generating Audio Stream ---")
-    audio_stream = np.array([], dtype=np.float32)
+def _silence(sample_rate: int, duration: float) -> np.ndarray:
+    return np.zeros(round(sample_rate * duration), dtype=np.int16)
 
-    # Cycle 1 (Valid)
-    audio_stream = np.concatenate(
-        [
-            audio_stream,
-            generate_tone(SAMPLE_RATE, 0.5, 1000),  # 1khz
-            generate_silence(SAMPLE_RATE, 0.2),  # Gap
-            generate_tone(SAMPLE_RATE, 0.5, 2000),  # 2khz
-            generate_silence(SAMPLE_RATE, 1.0),  # Long Gap
-        ]
+
+def _synthesize_profile(profile, sample_rate: int, cycles: int) -> np.ndarray:
+    chunks = [_silence(sample_rate, 0.5)]
+    for _ in range(cycles):
+        for segment in profile.segments:
+            duration = (segment.duration.min + segment.duration.max) / 2
+            if segment.type == "tone":
+                frequency = (segment.frequency.min + segment.frequency.max) / 2
+                chunks.append(_tone(sample_rate, duration, frequency))
+            else:
+                chunks.append(_silence(sample_rate, duration))
+    chunks.append(_silence(sample_rate, 1.0))
+    return np.concatenate(chunks)
+
+
+@pytest.mark.parametrize("alarm_type", ["smoke", "co"])
+def test_synthetic_alarm_patterns_are_detected(monkeypatch, alarm_type: str) -> None:
+    monkeypatch.setenv("ALARM_TYPE", alarm_type)
+    monkeypatch.setenv("SAMPLE_RATE", "8000")
+    monkeypatch.setenv("CHUNK_SIZE", "256")
+    monkeypatch.setenv("CONFIRMATION_CYCLES", "2")
+
+    config = DetectorConfig.from_environment()
+    profile = config.profiles[0]
+    states: list[bool] = []
+    detector = PatternDetector(
+        profile=profile,
+        audio_config=config.audio,
+        on_detection=states.append,
+        timer_factory=PassiveTimer,
     )
+    audio = _synthesize_profile(profile, config.audio.sample_rate, cycles=3)
 
-    # Cycle 2 (Valid)
-    audio_stream = np.concatenate(
-        [
-            audio_stream,
-            generate_tone(SAMPLE_RATE, 0.5, 1000),
-            generate_silence(SAMPLE_RATE, 0.2),
-            generate_tone(SAMPLE_RATE, 0.5, 2000),
-            generate_silence(SAMPLE_RATE, 1.0),
-        ]
-    )
+    chunk_size = config.audio.chunk_size
+    remainder = len(audio) % chunk_size
+    if remainder:
+        audio = np.pad(audio, (0, chunk_size - remainder))
 
-    # Cycle 3 (Start just to flush Cycle 2 final silence)
-    audio_stream = np.concatenate(
-        [
-            audio_stream,
-            generate_tone(SAMPLE_RATE, 0.5, 1000),
-            generate_silence(SAMPLE_RATE, 1.0),  # OFFICIALLY END THE TONE
-        ]
-    )
+    detected = False
+    for offset in range(0, len(audio), chunk_size):
+        detected = detector.process(audio[offset : offset + chunk_size]) or detected
 
-    print(f"Total Audio Duration: {len(audio_stream) / SAMPLE_RATE:.2f}s")
-
-    # Process in Chunks
-    print("\n--- Processing ---")
-
-    # Convert to int16 range for detector (it expects raw audio scaling)
-    # The new DSP divides by 32768.0, so we should scale our 0.5 amplitude to 16384
-    audio_int16 = (audio_stream * 32767).astype(np.int16)
-
-    detected_count = 0
-    for i in range(0, len(audio_int16), CHUNK_SIZE):
-        chunk = audio_int16[i : i + CHUNK_SIZE]
-        if len(chunk) < CHUNK_SIZE:
-            break
-
-        if detector.process(chunk):
-            detected_count += 1
-
-    print(f"\n--- Result: Detected {detected_count} times ---")
-    if detected_count > 0:
-        print("✅ SUCCESS: Alarm Detected")
-    else:
-        print("❌ FAILURE: No Detection")
-
-
-if __name__ == "__main__":
-    run_test()
+    assert detected is True
+    assert states == [True]
+    detector.close()
+    assert states == [True, False]

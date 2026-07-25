@@ -1,2 +1,6 @@
-acoustic-alarm-engine @ git+https://github.com/h0tp-ftw/acoustic-engine.git
-websockets==12.0
+acoustic-engine==1.4.0
+cffi==2.0.0
+numpy==2.4.1
+PyYAML==6.0.3
+pycparser==3.0
+sounddevice==0.5.5

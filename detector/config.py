@@ -1,162 +1,183 @@
-"""Configuration management for Acoustic Alarm Detector.
+"""Runtime configuration backed by acoustic-engine's canonical profile model."""
 
-Supports multiple detector profiles loaded from environment or config.
-"""
+from __future__ import annotations
 
-import json
-import os
 import logging
-from dataclasses import dataclass, field
-from typing import List, Optional
+import os
+from dataclasses import dataclass
+
+from acoustic_engine.config import AudioSettings
+from acoustic_engine.models import AlarmProfile, Range, Segment
+
+from .profile_service import ProfileStore
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class DetectorProfile:
-    """Configuration for a single detector profile."""
-
-    name: str
-    device_class: str = "smoke"  # "smoke", "gas", "safety"
-
-    # Detection Parameters
-    target_frequency: float = 3150.0
-    frequency_tolerance: float = 150.0
-    min_magnitude_threshold: float = 0.15
-
-    # Temporal Pattern Parameters
-    beep_duration_min: float = 0.1
-    beep_duration_max: float = 1.5
-    pause_duration_min: float = 0.05
-    pause_duration_max: float = 2.5
-
-    # Pattern Recognition
-    confirmation_cycles: int = 2
-    pattern_timeout: float = 10.0
-    beep_count: int = 3  # T3=3 beeps, T4=4 beeps
-
-    # Analysis / Quality Thresholds
-    min_energy_ratio: float = 0.08  # Target band must contain 8% of total energy (was 0.12, conservative start)
-    min_peak_sharpness: float = 2.0  # Peak must be 2x higher than neighbors (was 2.5)
-    max_freq_variance: float = 60.0  # Max Hz deviation during visual beep
-    min_magnitude_consistency: float = 0.3  # Min/Max magnitude ratio during beep
-
-    @property
-    def required_beeps(self) -> int:
-        """Return required beeps for pattern match."""
-        return self.beep_count
-
-
-@dataclass
-class AudioSettings:
-    """Shared audio capture settings."""
-
-    sample_rate: int = 44100
-    chunk_size: int = 4096
-    channels: int = 1
-    device_index: Optional[int] = None
-
-
-@dataclass
+@dataclass(slots=True)
 class DetectorConfig:
-    """Main configuration container."""
+    """Configuration required by the add-on runtime."""
 
-    device_name: str = "acoustic_alarm"
-    audio: AudioSettings = field(default_factory=AudioSettings)
-    profiles: List[DetectorProfile] = field(default_factory=list)
+    device_name: str
+    alarm_type: str
+    profile_id: str
+    audio: AudioSettings
+    profiles: list[AlarmProfile]
     debug_mode: bool = False
 
     @classmethod
     def from_environment(cls) -> "DetectorConfig":
-        """Load configuration from environment variables (legacy single-profile mode)."""
+        """Build a canonical engine profile from Home Assistant options."""
 
-        def safe_int(key: str, default: str) -> int:
-            val = os.getenv(key, default)
-            return int(val) if val and val.strip() else int(default)
+        alarm_type = os.getenv("ALARM_TYPE", "smoke").strip().lower()
+        if alarm_type not in {"smoke", "co", "safety"}:
+            raise ValueError(f"Unsupported alarm category: {alarm_type!r}")
 
-        def safe_float(key: str, default: str) -> float:
-            val = os.getenv(key, default)
-            return float(val) if val and val.strip() else float(default)
-
-        # Audio settings
         audio = AudioSettings(
-            sample_rate=safe_int("SAMPLE_RATE", "44100"),
-            chunk_size=4096,
+            sample_rate=_env_int("SAMPLE_RATE", 44100, minimum=8000),
+            chunk_size=_env_int("CHUNK_SIZE", 1024, minimum=128),
             channels=1,
-            device_index=(
-                int(os.getenv("AUDIO_DEVICE_INDEX"))
-                if os.getenv("AUDIO_DEVICE_INDEX", "").strip()
-                else None
-            ),
+            device_index=_optional_env_int("AUDIO_DEVICE_INDEX"),
         )
 
-        # Get alarm type to determine pattern
-        alarm_type = os.getenv("ALARM_TYPE", "smoke")
-        beep_count = 4 if alarm_type == "co" else 3  # T4 vs T3
-        device_class = "gas" if alarm_type == "co" else "smoke"
-
-        # Create single profile from environment
-        profile = DetectorProfile(
-            name=alarm_type,
-            device_class=device_class,
-            target_frequency=safe_float("TARGET_FREQ", "3150"),
-            frequency_tolerance=safe_float("FREQ_TOLERANCE", "150"),
-            min_magnitude_threshold=safe_float("MIN_MAGNITUDE", "0.15"),
-            beep_duration_min=safe_float("BEEP_MIN", "0.1"),
-            beep_duration_max=safe_float("BEEP_MAX", "1.5"),
-            pause_duration_min=safe_float("PAUSE_MIN", "0.05"),
-            pause_duration_max=safe_float("PAUSE_MAX", "2.5"),
-            confirmation_cycles=safe_int("CONFIRMATION_CYCLES", "2"),
-            beep_count=beep_count,
-        )
+        requested_profile_id = os.getenv("PROFILE_ID", "").strip()
+        if requested_profile_id:
+            profile = ProfileStore().load(requested_profile_id)
+            profile_id = profile.name
+        else:
+            if alarm_type == "safety":
+                raise ValueError(
+                    "The safety category requires a learned profile_id"
+                )
+            profile = _build_profile(alarm_type)
+            profile_id = profile.name
 
         return cls(
-            device_name=os.getenv("DEVICE_NAME", "smoke_alarm_detector"),
+            device_name=os.getenv("DEVICE_NAME", "smoke_alarm_detector").strip()
+            or "smoke_alarm_detector",
+            alarm_type=alarm_type,
+            profile_id=profile_id,
             audio=audio,
             profiles=[profile],
-            debug_mode=os.getenv("DEBUG_MODE", "false").lower() == "true",
-        )
-
-    @classmethod
-    def from_json_file(cls, path: str) -> "DetectorConfig":
-        """Load configuration from a JSON file (future multi-profile mode)."""
-        with open(path, "r") as f:
-            data = json.load(f)
-
-        audio = AudioSettings(**data.get("audio", {}))
-        profiles = [DetectorProfile(**p) for p in data.get("profiles", [])]
-
-        return cls(
-            device_name=data.get("device_name", "acoustic_alarm"),
-            audio=audio,
-            profiles=profiles,
-            debug_mode=data.get("debug_mode", False),
+            debug_mode=_env_bool("DEBUG_MODE", False),
         )
 
     def log_config(self) -> None:
-        """Log the current configuration."""
-        logger.info("=" * 60)
-        logger.info("ACOUSTIC ALARM DETECTOR - CONFIGURATION")
-        logger.info("=" * 60)
-        logger.info(f"Device Name: {self.device_name}")
-        logger.info(f"Sample Rate: {self.audio.sample_rate} Hz")
-        logger.info(f"Audio Device: {self.audio.device_index or 'default'}")
-        logger.info(f"Debug Mode: {self.debug_mode}")
-        logger.info("-" * 40)
-        logger.info(f"Detector Profiles: {len(self.profiles)}")
-        for p in self.profiles:
-            logger.info(f"  • {p.name} ({p.device_class})")
+        """Log a compact, actionable startup summary."""
+
+        logger.info(
+            "Device: %s | Category: %s | Profile: %s",
+            self.device_name,
+            self.alarm_type,
+            self.profile_id,
+        )
+        logger.info(
+            "Audio: %s Hz, chunk=%s, device=%s",
+            self.audio.sample_rate,
+            self.audio.chunk_size,
+            self.audio.device_index if self.audio.device_index is not None else "default",
+        )
+        for profile in self.profiles:
             logger.info(
-                f"    Frequency: {p.target_frequency}Hz ±{p.frequency_tolerance}"
+                "Profile: %s (%s segments, %s confirmation cycles, %.1fs clear timeout)",
+                profile.name,
+                len(profile.segments),
+                profile.confirmation_cycles,
+                profile.reset_timeout,
             )
-            logger.info(
-                f"    Beeps: {p.beep_count}, Confirmations: {p.confirmation_cycles}"
-            )
-        logger.info("=" * 60)
 
 
-# Legacy compatibility: Keep old DetectorConfig behavior
-# This allows existing code to continue working during transition
-def _create_legacy_config() -> DetectorConfig:
-    """Create config for legacy single-profile mode."""
-    return DetectorConfig.from_environment()
+def _build_profile(alarm_type: str) -> AlarmProfile:
+    """Create one T3/T4 profile using the engine's public schema."""
+
+    beep_count = 4 if alarm_type == "co" else 3
+    target_frequency = _env_float("TARGET_FREQ", 3133.0, minimum=100.0)
+    frequency_tolerance = _env_float("FREQ_TOLERANCE", 250.0, minimum=1.0)
+    magnitude = _env_float("MIN_MAGNITUDE", 0.05, minimum=0.0)
+
+    if alarm_type == "co":
+        beep_min_default, beep_max_default = 0.08, 0.20
+        pause_min_default, pause_max_default = 0.05, 0.20
+        final_pause = Range(3.0, 6.0)
+        name = "co"
+    else:
+        beep_min_default, beep_max_default = 0.40, 0.70
+        pause_min_default, pause_max_default = 0.30, 0.70
+        final_pause = Range(1.0, 1.8)
+        name = "smoke"
+
+    beep_duration = _ordered_range(
+        _env_float("BEEP_MIN", beep_min_default, minimum=0.01),
+        _env_float("BEEP_MAX", beep_max_default, minimum=0.01),
+        "beep duration",
+    )
+    pause_duration = _ordered_range(
+        _env_float("PAUSE_MIN", pause_min_default, minimum=0.01),
+        _env_float("PAUSE_MAX", pause_max_default, minimum=0.01),
+        "pause duration",
+    )
+    frequency = Range(
+        max(1.0, target_frequency - frequency_tolerance),
+        target_frequency + frequency_tolerance,
+    )
+
+    segments: list[Segment] = []
+    for index in range(beep_count):
+        segments.append(
+            Segment(
+                type="tone",
+                frequency=frequency,
+                duration=beep_duration,
+                min_magnitude=magnitude,
+            )
+        )
+        segments.append(
+            Segment(
+                type="silence",
+                duration=final_pause if index == beep_count - 1 else pause_duration,
+            )
+        )
+
+    return AlarmProfile(
+        name=name,
+        segments=segments,
+        confirmation_cycles=_env_int("CONFIRMATION_CYCLES", 2, minimum=1),
+        reset_timeout=_env_float("RESET_TIMEOUT", 10.0, minimum=0.1),
+    )
+
+
+def _ordered_range(minimum: float, maximum: float, label: str) -> Range:
+    if minimum > maximum:
+        raise ValueError(f"Minimum {label} cannot exceed maximum {label}")
+    return Range(minimum, maximum)
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    value = os.getenv(key)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(key: str, default: int, *, minimum: int | None = None) -> int:
+    value = os.getenv(key)
+    result = default if value is None or not value.strip() else int(value)
+    if minimum is not None and result < minimum:
+        raise ValueError(f"{key} must be at least {minimum}")
+    return result
+
+
+def _optional_env_int(key: str) -> int | None:
+    value = os.getenv(key)
+    if value is None or not value.strip():
+        return None
+    result = int(value)
+    return None if result < 0 else result
+
+
+def _env_float(key: str, default: float, *, minimum: float | None = None) -> float:
+    value = os.getenv(key)
+    result = default if value is None or not value.strip() else float(value)
+    if minimum is not None and result < minimum:
+        raise ValueError(f"{key} must be at least {minimum}")
+    return result
