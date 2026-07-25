@@ -1,147 +1,88 @@
-"""Sensor component for Home Assistant integration.
+"""Home Assistant state publication for detected profiles."""
 
-This module handles:
-- Communication with Home Assistant via REST API
-- Sensor state management
-- Writing available profiles for the integration config flow
-"""
+from __future__ import annotations
 
-import json
 import logging
-import os
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import List, Optional
+from collections.abc import Callable, Iterable
 
-from integration_client import IntegrationClient
+from .integration_client import IntegrationClient
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class SensorProfile:
-    """Represents a detector profile for HA sensor creation."""
-
-    name: str
-    device_class: str  # "smoke", "gas", "safety", etc.
-    friendly_name: Optional[str] = None
-
-    def __post_init__(self):
-        if not self.friendly_name:
-            self.friendly_name = self.name.replace("_", " ").title()
-
-
 class SensorManager:
-    """Manages sensor state updates and profile sharing with HA integration."""
+    """Route detector state changes through one Home Assistant publisher."""
 
-    def __init__(self, device_name: str, profiles: List[SensorProfile]):
-        """Initialize the sensor manager.
-
-        Args:
-            device_name: Base device name for sensors
-            profiles: List of detector profiles to register
-        """
+    def __init__(
+        self,
+        device_name: str,
+        profile_names: Iterable[str],
+        alarm_type: str,
+        *,
+        client: IntegrationClient | None = None,
+    ) -> None:
         self.device_name = device_name
-        self.profiles = profiles
-        self._clients: dict[str, IntegrationClient] = {}
-        self._connected = False
-
-        # Path where profiles are written for the integration to read
-        self._profiles_dir = Path("/config/acoustic_alarm_detector")
-        self._profiles_file = self._profiles_dir / "profiles.json"
+        self.profile_names = tuple(profile_names)
+        self.alarm_type = alarm_type
+        self._profile_set = frozenset(self.profile_names)
+        self._client = client or IntegrationClient(
+            detector_id=device_name,
+            alarm_type=alarm_type,
+        )
 
     def setup(self) -> bool:
-        """Initialize HA clients and write profile config.
+        """Probe Home Assistant, start retry delivery, and publish initial clear states."""
 
-        Returns:
-            True if at least one client connected successfully
-        """
-        logger.info("=" * 50)
-        logger.info("SENSOR MANAGER - INITIALIZATION")
-        logger.info("=" * 50)
+        connected = self._client.connect()
+        self._client.start()
 
-        # Write profiles for integration config flow
-        self._write_profiles()
+        if self.profile_names and not self._client.publish_discovery(
+            self.profile_names[0]
+        ):
+            logger.warning("Home Assistant integration discovery was not published")
 
-        # Create a client for each profile
-        success_count = 0
-        for profile in self.profiles:
-            client = IntegrationClient(
-                device_name=self.device_name, alarm_type=profile.name
-            )
+        for profile_name in self.profile_names:
+            self._client.update_state(profile_name, False)
 
-            if client.connect():
-                logger.info(f"✅ Connected sensor: {profile.name}")
-                success_count += 1
-            else:
-                logger.warning(f"⚠️ Failed to connect sensor: {profile.name}")
+        if connected:
+            logger.info("Home Assistant state publisher is connected")
+        else:
+            logger.warning("Home Assistant updates will retry in the background")
+        return connected
 
-            self._clients[profile.name] = client
+    def persist_addon_options(self, options: dict[str, object]) -> bool:
+        """Persist the complete option set before a hot profile activation."""
 
-        self._connected = success_count > 0
-        logger.info(f"Connected {success_count}/{len(self.profiles)} sensors")
-        return self._connected
+        return self._client.update_addon_options(options)
 
-    def _write_profiles(self) -> None:
-        """Write available profiles to shared JSON for integration."""
-        try:
-            self._profiles_dir.mkdir(parents=True, exist_ok=True)
+    def status(self) -> dict[str, object]:
+        """Return the Home Assistant publisher health for ingress diagnostics."""
 
-            profile_data = {
-                "device_name": self.device_name,
-                "profiles": [
-                    {
-                        "name": p.name,
-                        "device_class": p.device_class,
-                        "friendly_name": p.friendly_name,
-                    }
-                    for p in self.profiles
-                ],
-            }
+        return self._client.status()
 
-            with open(self._profiles_file, "w") as f:
-                json.dump(profile_data, f, indent=2)
+    def restart_addon(self) -> bool:
+        """Request an app restart after a microphone selection changes."""
 
-            logger.info(f"📝 Wrote profiles to {self._profiles_file}")
-
-        except Exception as e:
-            logger.error(f"Failed to write profiles: {e}")
+        return self._client.restart_addon()
 
     def update_state(self, profile_name: str, detected: bool) -> bool:
-        """Update sensor state in Home Assistant.
+        """Queue the latest state for one known profile."""
 
-        Args:
-            profile_name: Name of the profile/sensor to update
-            detected: True if alarm detected, False otherwise
-
-        Returns:
-            True if state update succeeded
-        """
-        client = self._clients.get(profile_name)
-        if not client:
-            logger.error(f"No client for profile: {profile_name}")
+        if profile_name not in self._profile_set:
+            logger.error("Unknown detector profile: %s", profile_name)
             return False
 
-        state_str = "DETECTED" if detected else "CLEAR"
-        logger.info(f"🔔 {profile_name}: {state_str}")
+        queued = self._client.update_state(profile_name, detected)
+        if queued:
+            logger.info(
+                "Queued %s state for %s",
+                "active" if detected else "clear",
+                profile_name,
+            )
+        return queued
 
-        success = client.update_state(detected)
-        if success:
-            logger.info(f"✅ Updated {profile_name} sensor")
-        else:
-            logger.error(f"❌ Failed to update {profile_name} sensor")
-
-        return success
-
-    def create_detection_callback(self, profile_name: str):
-        """Create a callback function for detector to call on detection.
-
-        Args:
-            profile_name: Name of the profile this callback is for
-
-        Returns:
-            Callback function that accepts detected: bool
-        """
+    def create_detection_callback(self, profile_name: str) -> Callable[[bool], None]:
+        """Create the callback used by one pattern detector."""
 
         def callback(detected: bool) -> None:
             self.update_state(profile_name, detected)
@@ -149,12 +90,4 @@ class SensorManager:
         return callback
 
     def cleanup(self) -> None:
-        """Disconnect all clients."""
-        logger.info("Cleaning up sensor connections...")
-        for name, client in self._clients.items():
-            try:
-                client.disconnect()
-            except Exception:
-                pass
-        self._clients.clear()
-        logger.info("Sensor cleanup complete")
+        self._client.disconnect()

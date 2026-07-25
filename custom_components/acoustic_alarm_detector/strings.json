@@ -1,28 +1,27 @@
 {
   "config": {
+    "flow_title": "{name} · {profile}",
     "step": {
+      "hassio_confirm": {
+        "title": "Set up discovered alarm detector",
+        "description": "The Acoustic Alarm Detector app found **{detector}** using profile **{profile}**. Home Assistant will create a **{alarm_type}** binary sensor."
+      },
       "user": {
-        "title": "Set up Acoustic Alarm Detector",
-        "description": "Configure your acoustic alarm detector. The add-on must be installed and running.",
+        "title": "Set up Acoustic Alarm Detector manually",
+        "description": "Use this fallback only when the app was not discovered. Enter the detector ID and profile ID shown by the app, then choose how Home Assistant should classify the alarm.",
         "data": {
-          "device_name": "Device Name",
-          "alarm_type": "Alarm Type"
+          "device_name": "Detector ID",
+          "profile_id": "Profile ID",
+          "alarm_type": "Alarm category"
         }
       }
     },
     "error": {
-      "already_configured": "This device is already configured"
+      "invalid_device_name": "Enter a detector ID"
     },
     "abort": {
-      "already_configured": "Device is already configured"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Acoustic Alarm Detector Options",
-        "description": "Configure advanced options (coming soon)"
-      }
+      "already_configured": "This detector and profile are already configured",
+      "invalid_discovery": "The app sent incomplete discovery information. Check the app log and restart it."
     }
   }
 }

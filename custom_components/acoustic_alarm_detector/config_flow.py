@@ -1,138 +1,158 @@
-"""Config flow for Acoustic Alarm Detector integration."""
+"""Config flow for Acoustic Alarm Detector."""
 
 from __future__ import annotations
 
-import json
-import logging
-import os
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from .const import (
-    ALARM_TYPE_CO,
-    ALARM_TYPE_SMOKE,
+    ALARM_TYPES,
     CONF_ALARM_TYPE,
     CONF_DEVICE_NAME,
+    CONF_PROFILE_ID,
     DEFAULT_ALARM_TYPE,
     DEFAULT_DEVICE_NAME,
+    DEFAULT_PROFILE_ID,
     DOMAIN,
+    entry_unique_id,
+    parse_discovery_config,
 )
 
-_LOGGER = logging.getLogger(__name__)
-
-# Path to profiles written by the add-on
-PROFILES_PATH = "/config/acoustic_alarm_detector/profiles.json"
+PROFILE_ID_SCHEMA = vol.All(
+    str,
+    vol.Strip,
+    vol.Match(r"^[a-z0-9][a-z0-9_]*$"),
+)
 
 
 class AcousticAlarmDetectorConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Acoustic Alarm Detector."""
+    """Configure the entity that receives add-on state events."""
 
     VERSION = 1
+    MINOR_VERSION = 3
 
-    async def _get_available_profiles(self) -> dict[str, str]:
-        """Read available profiles from add-on config file.
+    def __init__(self) -> None:
+        super().__init__()
+        self._discovered_data: dict[str, str] | None = None
 
-        Returns:
-            Dictionary mapping profile name to display name
-        """
-        try:
-            if os.path.exists(PROFILES_PATH):
-                with open(PROFILES_PATH, "r") as f:
-                    data = json.load(f)
+    async def async_step_hassio(
+        self,
+        discovery_info: HassioServiceInfo,
+    ) -> config_entries.ConfigFlowResult:
+        """Handle discovery from the Home Assistant app."""
 
-                profiles = data.get("profiles", [])
-                if profiles:
-                    _LOGGER.info(f"Loaded {len(profiles)} profiles from add-on config")
-                    return {
-                        p["name"]: p.get(
-                            "friendly_name", p["name"].replace("_", " ").title()
-                        )
-                        for p in profiles
-                    }
+        data = parse_discovery_config(dict(discovery_info.config))
+        if data is None:
+            return self.async_abort(reason="invalid_discovery")
 
-        except Exception as e:
-            _LOGGER.warning(f"Could not load profiles from add-on: {e}")
+        await self.async_set_unique_id(
+            entry_unique_id(
+                data[CONF_DEVICE_NAME],
+                data[CONF_PROFILE_ID],
+            )
+        )
+        self._abort_if_unique_id_configured(updates=data)
+        if _entry_already_exists(self._async_current_entries(), data):
+            return self.async_abort(reason="already_configured")
 
-        # Fallback to default options if file not found or invalid
-        _LOGGER.info("Using default alarm types (smoke, co)")
-        return {
-            ALARM_TYPE_SMOKE: "Smoke Alarm",
-            ALARM_TYPE_CO: "CO Alarm",
+        self._discovered_data = data
+        self.context["title_placeholders"] = {
+            "name": data[CONF_DEVICE_NAME],
+            "profile": data[CONF_PROFILE_ID],
         }
+        return await self.async_step_hassio_confirm()
+
+    async def async_step_hassio_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Ask the user to confirm the discovered detector."""
+
+        if self._discovered_data is None:
+            return self.async_abort(reason="invalid_discovery")
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title=_entry_title(self._discovered_data),
+                data=self._discovered_data,
+            )
+
+        return self.async_show_form(
+            step_id="hassio_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "detector": self._discovered_data[CONF_DEVICE_NAME],
+                "profile": self._discovered_data[CONF_PROFILE_ID],
+                "alarm_type": ALARM_TYPES[
+                    self._discovered_data[CONF_ALARM_TYPE]
+                ],
+            },
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the initial step."""
+    ) -> config_entries.ConfigFlowResult:
+        """Provide a manual fallback when Supervisor discovery is unavailable."""
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate unique device name
-            await self.async_set_unique_id(
-                f"{user_input[CONF_DEVICE_NAME]}_{user_input[CONF_ALARM_TYPE]}"
-            )
-            self._abort_if_unique_id_configured()
-
-            # Create the config entry
-            return self.async_create_entry(
-                title=f"{user_input[CONF_DEVICE_NAME]} ({user_input[CONF_ALARM_TYPE].upper()})",
-                data=user_input,
-            )
-
-        # Get available alarm types dynamically
-        available_profiles = await self._get_available_profiles()
-
-        # Show the configuration form
-        data_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_DEVICE_NAME,
-                    default=DEFAULT_DEVICE_NAME,
-                ): str,
-                vol.Required(
-                    CONF_ALARM_TYPE,
-                    default=DEFAULT_ALARM_TYPE,
-                ): vol.In(available_profiles),
+            data = {
+                CONF_DEVICE_NAME: user_input[CONF_DEVICE_NAME].strip(),
+                CONF_PROFILE_ID: user_input[CONF_PROFILE_ID].strip(),
+                CONF_ALARM_TYPE: user_input[CONF_ALARM_TYPE],
             }
-        )
+
+            if not data[CONF_DEVICE_NAME]:
+                errors[CONF_DEVICE_NAME] = "invalid_device_name"
+            else:
+                await self.async_set_unique_id(
+                    entry_unique_id(
+                        data[CONF_DEVICE_NAME],
+                        data[CONF_PROFILE_ID],
+                    )
+                )
+                self._abort_if_unique_id_configured()
+                if _entry_already_exists(self._async_current_entries(), data):
+                    return self.async_abort(reason="already_configured")
+                return self.async_create_entry(
+                    title=_entry_title(data),
+                    data=data,
+                )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DEVICE_NAME,
+                        default=DEFAULT_DEVICE_NAME,
+                    ): str,
+                    vol.Required(
+                        CONF_PROFILE_ID,
+                        default=DEFAULT_PROFILE_ID,
+                    ): PROFILE_ID_SCHEMA,
+                    vol.Required(
+                        CONF_ALARM_TYPE,
+                        default=DEFAULT_ALARM_TYPE,
+                    ): vol.In(ALARM_TYPES),
+                }
+            ),
             errors=errors,
         )
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> AcousticAlarmDetectorOptionsFlow:
-        """Get the options flow for this handler."""
-        return AcousticAlarmDetectorOptionsFlow(config_entry)
+
+def _entry_title(data: dict[str, str]) -> str:
+    return f"{data[CONF_DEVICE_NAME]} ({data[CONF_PROFILE_ID]})"
 
 
-class AcousticAlarmDetectorOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for Acoustic Alarm Detector."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage the options."""
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        # Currently no options to configure
-        # In the future, you could add sensitivity settings here
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema({}),
-        )
+def _entry_already_exists(entries, data: dict[str, str]) -> bool:
+    return any(
+        entry.data.get(CONF_DEVICE_NAME) == data[CONF_DEVICE_NAME]
+        and entry.data.get(CONF_PROFILE_ID) == data[CONF_PROFILE_ID]
+        for entry in entries
+    )

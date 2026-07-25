@@ -1,183 +1,372 @@
-"""REST API client for communicating with Home Assistant."""
+"""Non-blocking state publisher for the Home Assistant Core event API."""
+
+from __future__ import annotations
 
 import json
 import logging
 import os
-import urllib.request
+import threading
 import urllib.error
-from typing import Optional
+import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+
+from . import __version__
 
 logger = logging.getLogger(__name__)
 
+EVENT_STATE_UPDATE = "acoustic_alarm_detector_state"
+DISCOVERY_SERVICE = "acoustic_alarm_detector"
+PROTOCOL_VERSION = 1
+
+UrlOpen = Callable[..., Any]
+Clock = Callable[[], datetime]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingState:
+    """Versioned latest state for one detector profile."""
+
+    sequence: int
+    payload: dict[str, object]
+
 
 class IntegrationClient:
-    """Client for communicating with HA via REST API (fires events)."""
+    """Publish latest detector states without blocking the audio thread.
 
-    def __init__(self, device_name: str = "", alarm_type: str = ""):
-        """Initialize the integration client."""
-        self.device_name = device_name or os.getenv("DEVICE_NAME", "smoke_alarm")
-        self.alarm_type = alarm_type or os.getenv("ALARM_TYPE", "smoke")
+    Changed states are queued immediately. The queue is bounded to one value per
+    profile, retries while Home Assistant is unavailable, and periodically
+    replays the latest snapshot so integration reloads recover automatically.
+    """
+
+    def __init__(
+        self,
+        detector_id: str,
+        alarm_type: str,
+        *,
+        token: str | None = None,
+        api_url: str = "http://supervisor/core/api",
+        supervisor_url: str = "http://supervisor",
+        retry_interval: float = 5.0,
+        heartbeat_interval: float = 60.0,
+        urlopen: UrlOpen = urllib.request.urlopen,
+        clock: Clock | None = None,
+    ) -> None:
+        self.detector_id = detector_id
+        self.alarm_type = alarm_type
+        self.api_url = api_url.rstrip("/")
+        self.supervisor_url = supervisor_url.rstrip("/")
+        self.token = token if token is not None else os.getenv("SUPERVISOR_TOKEN")
+        self.retry_interval = retry_interval
+        self.heartbeat_interval = heartbeat_interval
+        self._urlopen = urlopen
+        self._clock = clock or (lambda: datetime.now(UTC))
+
         self.connected = False
-
-        # Get HA API URL and token (via Supervisor proxy)
-        self.api_url = "http://supervisor/core/api"
-        self.token = os.getenv("SUPERVISOR_TOKEN")
-
-        if self.token:
-            logger.info(
-                f"Integration client initialized (token length: {len(self.token)})"
-            )
-            logger.info(f"Device: {self.device_name}, Alarm type: {self.alarm_type}")
-        else:
-            logger.warning("No SUPERVISOR_TOKEN found in environment!")
+        self.discovery_uuid: str | None = None
+        self._sequence = 0
+        self._latest: dict[str, PendingState] = {}
+        self._pending: dict[str, PendingState] = {}
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._worker: threading.Thread | None = None
 
     def connect(self) -> bool:
-        """Test connection to Home Assistant API."""
+        """Probe the Home Assistant Core API proxy."""
+
         if not self.token:
-            logger.warning("No SUPERVISOR_TOKEN available")
+            logger.warning("SUPERVISOR_TOKEN is unavailable")
+            self.connected = False
             return False
 
         try:
-            # Test API connection
-            req = urllib.request.Request(
-                f"{self.api_url}/",
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "Content-Type": "application/json",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    logger.info("✅ Connected to Home Assistant API")
-                    self.connected = True
-                    return True
-        except urllib.error.HTTPError as e:
-            logger.error(f"HTTP error connecting to HA: {e.code} {e.reason}")
-        except urllib.error.URLError as e:
-            logger.error(f"URL error connecting to HA: {e.reason}")
-        except Exception as e:
-            logger.error(f"Failed to connect to HA API: {e}")
+            request = self._request("GET", "/config")
+            with self._urlopen(request, timeout=5) as response:
+                self.connected = response.status == 200
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            self.connected = False
+            logger.warning("Home Assistant Core API is unavailable: %s", exc)
 
-        return False
-
-    def update_state(self, detected: bool) -> bool:
-        """Update alarm state by firing an event and setting entity state."""
-        if not self.token:
-            logger.warning("No token - cannot update state")
-            return False
-
-        entity_id = f"binary_sensor.{self.device_name}_{self.alarm_type}"
-
-        # First, try to set the binary sensor state directly
-        success = self._set_entity_state(entity_id, detected)
-
-        # Also fire an event for any other listeners
-        self._fire_event(detected)
-
-        return success
-
-    def _set_entity_state(self, entity_id: str, detected: bool) -> bool:
-        """Set binary sensor state via REST API."""
-        state = "on" if detected else "off"
-
-        payload = {
-            "state": state,
-            "attributes": {
-                "device_class": "smoke" if self.alarm_type == "smoke" else "gas",
-                "friendly_name": f"{self.device_name.replace('_', ' ').title()} {self.alarm_type.title()} Alarm",
-            },
-        }
-
-        try:
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                f"{self.api_url}/states/{entity_id}",
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-
-            with urllib.request.urlopen(req, timeout=10) as response:
-                if response.status in (200, 201):
-                    logger.info(f"✅ Set {entity_id} to {state}")
-                    return True
-                else:
-                    logger.error(f"Unexpected response: {response.status}")
-                    return False
-
-        except urllib.error.HTTPError as e:
-            logger.error(f"HTTP error setting state: {e.code} {e.reason}")
-            try:
-                error_body = e.read().decode("utf-8")
-                logger.error(f"Error details: {error_body}")
-            except:
-                pass
-        except Exception as e:
-            logger.error(f"Failed to set entity state: {e}")
-
-        return False
-
-    def _fire_event(self, detected: bool) -> bool:
-        """Fire an event for other listeners."""
-        event_type = "acoustic_alarm_detector_state_changed"
-
-        payload = {
-            "device_name": self.device_name,
-            "alarm_type": self.alarm_type,
-            "state": detected,
-        }
-
-        try:
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                f"{self.api_url}/events/{event_type}",
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-
-            with urllib.request.urlopen(req, timeout=10) as response:
-                if response.status == 200:
-                    logger.debug(f"Event fired: {event_type}")
-                    return True
-
-        except Exception as e:
-            logger.debug(f"Failed to fire event: {e}")
-
-        return False
-
-    def disconnect(self):
-        """Disconnect (no-op for REST API)."""
-        self.connected = False
-        logger.info("Integration client disconnected")
-
-
-# Synchronous wrapper (for compatibility with existing code)
-class SyncIntegrationClient:
-    """Synchronous wrapper for IntegrationClient."""
-
-    def __init__(self, entry_id: Optional[str] = None):
-        """Initialize sync client."""
-        # entry_id is ignored for REST API approach
-        self.client = IntegrationClient()
-        self.connected = False
-
-    def connect(self) -> bool:
-        """Connect (synchronous)."""
-        self.connected = self.client.connect()
         return self.connected
 
-    def update_state(self, state: bool) -> bool:
-        """Update state (synchronous)."""
-        return self.client.update_state(state)
+    def publish_discovery(self, profile_id: str) -> bool:
+        """Advertise the active detector/profile through Supervisor discovery."""
 
-    def disconnect(self):
-        """Disconnect (synchronous)."""
-        self.client.disconnect()
+        if not self.token:
+            logger.warning("Cannot publish discovery without SUPERVISOR_TOKEN")
+            return False
+
+        payload: dict[str, object] = {
+            "service": DISCOVERY_SERVICE,
+            "config": {
+                "protocol_version": PROTOCOL_VERSION,
+                "detector_id": self.detector_id,
+                "profile_id": profile_id,
+                "alarm_type": self.alarm_type,
+                "source_version": __version__,
+            },
+        }
+        try:
+            request = self._request_for(
+                self.supervisor_url,
+                "POST",
+                "/discovery",
+                payload,
+            )
+            with self._urlopen(request, timeout=5) as response:
+                if response.status not in {200, 201}:
+                    return False
+                response_data = json.loads(response.read().decode("utf-8"))
+        except (
+            json.JSONDecodeError,
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            logger.warning("Supervisor discovery is unavailable: %s", exc)
+            return False
+
+        uuid = response_data.get("data", response_data).get("uuid")
+        if not isinstance(uuid, str) or not uuid:
+            logger.warning("Supervisor discovery response did not contain a UUID")
+            return False
+        self.discovery_uuid = uuid
+        logger.info("Published Home Assistant discovery for %s", profile_id)
+        return True
+
+    def start(self) -> None:
+        """Start the single latest-state delivery worker."""
+
+        if not self.token or self._worker is not None:
+            return
+
+        self._stop.clear()
+        self._worker = threading.Thread(
+            target=self._run,
+            name="ha-state-publisher",
+            daemon=True,
+        )
+        self._worker.start()
+
+    def update_state(self, profile_id: str, active: bool) -> bool:
+        """Queue the newest state for a profile and return immediately."""
+
+        if not self.token:
+            logger.warning("Cannot publish state without SUPERVISOR_TOKEN")
+            return False
+
+        payload: dict[str, object] = {
+            "protocol_version": PROTOCOL_VERSION,
+            "detector_id": self.detector_id,
+            "profile_id": profile_id,
+            "alarm_type": self.alarm_type,
+            "active": bool(active),
+            "updated_at": self._clock().isoformat(),
+            "source_version": __version__,
+        }
+
+        with self._lock:
+            self._sequence += 1
+            state = PendingState(self._sequence, payload)
+            self._latest[profile_id] = state
+            self._pending[profile_id] = state
+
+        self._wake.set()
+        return True
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            timeout = (
+                self.retry_interval if self.pending_count else self.heartbeat_interval
+            )
+            signaled = self._wake.wait(timeout=timeout)
+            self._wake.clear()
+
+            if self._stop.is_set():
+                break
+
+            if self.pending_count:
+                self._publish_pending_once()
+            elif not signaled:
+                self._publish_latest_once()
+
+    def _publish_pending_once(self) -> bool:
+        """Attempt every changed or previously failed profile once."""
+
+        with self._lock:
+            snapshot = list(self._pending.items())
+
+        all_sent = True
+        for profile_id, state in snapshot:
+            if not self._fire_event(state.payload):
+                all_sent = False
+                continue
+
+            with self._lock:
+                current = self._pending.get(profile_id)
+                if current is not None and current.sequence == state.sequence:
+                    self._pending.pop(profile_id, None)
+
+        return all_sent
+
+    def _publish_latest_once(self) -> bool:
+        """Replay the latest complete snapshot for integration reload recovery."""
+
+        with self._lock:
+            snapshot = list(self._latest.items())
+
+        all_sent = True
+        for profile_id, state in snapshot:
+            if self._fire_event(state.payload):
+                continue
+
+            all_sent = False
+            with self._lock:
+                current = self._latest.get(profile_id)
+                if current is not None and current.sequence == state.sequence:
+                    self._pending[profile_id] = state
+
+        return all_sent
+
+    def _fire_event(self, payload: dict[str, object]) -> bool:
+        try:
+            request = self._request(
+                "POST",
+                f"/events/{EVENT_STATE_UPDATE}",
+                payload,
+            )
+            with self._urlopen(request, timeout=5) as response:
+                success = response.status in {200, 201}
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            success = False
+            logger.warning("State update retained for retry: %s", exc)
+
+        self.connected = success
+        return success
+
+    def update_addon_options(self, options: dict[str, object]) -> bool:
+        """Persist the complete app option set through the Supervisor self API."""
+
+        if not self.token:
+            logger.warning("Cannot update app options without SUPERVISOR_TOKEN")
+            return False
+
+        try:
+            request = self._request_for(
+                self.supervisor_url,
+                "POST",
+                "/addons/self/options",
+                {"options": options},
+            )
+            with self._urlopen(request, timeout=10) as response:
+                success = response.status in {200, 201}
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            logger.warning("Could not persist app options: %s", exc)
+            return False
+
+        if not success:
+            logger.warning("Supervisor rejected the app option update")
+        return success
+
+    def restart_addon(self) -> bool:
+        """Request a restart of this app through the Supervisor self API."""
+
+        if not self.token:
+            logger.warning("Cannot restart the app without SUPERVISOR_TOKEN")
+            return False
+
+        try:
+            request = self._request_for(
+                self.supervisor_url,
+                "POST",
+                "/addons/self/restart",
+                {},
+            )
+            with self._urlopen(request, timeout=5) as response:
+                return response.status in {200, 201}
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            logger.warning("Could not restart the app: %s", exc)
+            return False
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> urllib.request.Request:
+        return self._request_for(self.api_url, method, path, payload)
+
+    def _request_for(
+        self,
+        base_url: str,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+    ) -> urllib.request.Request:
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        return urllib.request.Request(
+            f"{base_url}{path}",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            },
+            method=method,
+        )
+
+    def status(self) -> dict[str, object]:
+        """Return a thread-safe, non-sensitive publisher status snapshot."""
+
+        with self._lock:
+            pending_count = len(self._pending)
+            latest_count = len(self._latest)
+        return {
+            "connected": self.connected,
+            "pending_updates": pending_count,
+            "published_profiles": latest_count,
+            "discovery_published": self.discovery_uuid is not None,
+        }
+
+    @property
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self._pending)
+
+    @property
+    def latest_count(self) -> int:
+        with self._lock:
+            return len(self._latest)
+
+    def disconnect(self) -> None:
+        """Stop the publisher worker without blocking indefinitely."""
+
+        self._stop.set()
+        self._wake.set()
+        if self._worker is not None:
+            self._worker.join(timeout=2)
+            self._worker = None
         self.connected = False

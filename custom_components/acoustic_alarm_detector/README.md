@@ -1,40 +1,39 @@
 # Acoustic Alarm Detector Integration
 
-A native Home Assistant integration for acoustic smoke and CO alarm detection.
+Home Assistant custom integration for entities owned by the Acoustic Alarm Detector add-on.
 
-## Installation
+## Development installation
 
-1. Copy this entire directory to your Home Assistant custom_components folder:
+1. Copy this directory to:
 
-   ```
+   ```text
    /config/custom_components/acoustic_alarm_detector/
    ```
 
-2. Restart Home Assistant
+2. Restart Home Assistant.
+3. Start the add-on.
+4. Open the discovered **Acoustic Alarm Detector** card under **Settings → Devices & services** and confirm it.
 
-3. Go to **Settings → Devices & Services → Add Integration**
+Use **Add integration → Acoustic Alarm Detector** only as a manual fallback. Both setup paths use the stable detector/profile unique ID, so republished Supervisor discovery cannot create duplicates.
 
-4. Search for "Acoustic Alarm Detector"
+Supported integration distribution is still being developed. The add-on does not copy or modify these files automatically.
 
-5. Configure your device and alarm type
+## State ownership
 
-## Requirements
+The integration exclusively owns the Home Assistant binary sensor. The add-on publishes a versioned local event through the authenticated Home Assistant Core API. The integration validates the protocol version plus detector/profile IDs, stores the latest state in config-entry runtime data, and updates the entity through Home Assistant's normal entity lifecycle.
 
-- The Acoustic Alarm Detector add-on must be installed and running
-- Add-on configuration must match integration configuration
+There is no direct `/api/states` write and no custom WebSocket command.
 
-## Features
+## Entity behavior
 
-- Native binary sensor creation
-- UI-based configuration
-- WebSocket communication with add-on
-- Device registry integration
-- Proper Home Assistant security model
-
-## Documentation
-
-See the main repository for complete setup instructions and documentation.
+- The selected smoke category uses the smoke binary-sensor device class.
+- The selected CO category uses the dedicated CO device class.
+- Learned profiles can use the generic safety category without changing their profile ID.
+- The entity remains unavailable until the first matching state event arrives.
+- Profile ID, alarm category, latest add-on update time, and source version are exposed as attributes.
+- Entries created before profile IDs existed migrate to their previous smoke/CO profile and a stable detector/profile unique ID automatically.
+- Event and dispatcher subscriptions are removed with the config entry.
 
 ## Version
 
-9.0.0
+9.5.0
