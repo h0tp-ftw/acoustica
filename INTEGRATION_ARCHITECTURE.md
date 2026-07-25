@@ -1,179 +1,102 @@
-# Home Assistant Integration Architecture Plan
+# Home Assistant Integration Architecture
 
-## Overview
+## Design rule
 
-Convert the Acoustic Alarm Detector to use a **proper Home Assistant Integration** instead of REST API workarounds.
+The add-on detects sounds. The custom integration owns Home Assistant entities. They communicate through exactly one versioned Home Assistant event.
 
-## Architecture: Add-on + Integration (Hybrid)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Home Assistant Core                       │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Acoustic Alarm Detector Integration (custom_components)│ │
-│  │  • Binary Sensor Platform                              │ │
-│  │  • Config Flow (UI setup)                              │ │
-│  │  • WebSocket Server/Client                             │ │
-│  │  • Device Registry                                     │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                           ↕ (WebSocket/HTTP)                 │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  Acoustic Alarm Detector Add-on                        │ │
-│  │  • Audio Processing (PyAudio, FFT)                     │ │
-│  │  • Pattern Detection                                   │ │
-│  │  • Send events to Integration                          │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                           ↕                                  │
-│                    Audio Hardware                            │
-└─────────────────────────────────────────────────────────────┘
+```text
+Microphone
+   |
+   v
+Add-on
+  AudioListener -> acoustic-engine -> PatternDetector
+       |                              |
+       v                              v
+  bounded recording tap     IntegrationClient worker
+       |
+       v
+  acoustic-engine learner -> canonical /data profile YAML
+                                      |
+                    POST /api/events/acoustic_alarm_detector_state
+                                      |
+                                      v
+Home Assistant event bus -> custom integration -> managed binary sensor
 ```
 
-## Benefits
+## Add-on responsibilities
 
-### Security
+- Capture one mono microphone stream.
+- Feed the same chunks to live detection and the bounded guided-recording tap.
+- Run the published `acoustic-engine` detector and learner.
+- Store validated canonical profiles only in add-on-owned `/data` storage.
+- Maintain active/clear timing.
+- Publish the latest profile state without blocking audio processing.
+- Retain one pending value per profile during an outage.
+- Periodically replay the latest snapshot so integration reloads recover.
 
-- ✅ Integration runs with standard permissions (no admin role)
-- ✅ Add-on only needs audio access (can enable AppArmor)
-- ✅ Proper separation of concerns
+The add-on does not write entity states directly and does not access Home Assistant configuration files.
 
-### User Experience
+## Integration responsibilities
 
-- ✅ Shows in "Devices & Services" UI
-- ✅ Config flow for easy setup
-- ✅ Proper device/entity management
-- ✅ Automatic discovery (optional)
+- Create and own devices and binary-sensor entities.
+- Register one event listener per config entry.
+- Filter events by stable detector and profile IDs.
+- Reject malformed or unsupported protocol versions.
+- Update entities through Home Assistant's dispatcher/entity lifecycle.
+- Remove subscriptions when the config entry unloads.
 
-### Maintainability
+The integration does not capture audio or perform DSP.
 
-- ✅ Follows Home Assistant best practices
-- ✅ Native entity creation
-- ✅ Better debugging and logging
-- ✅ Can be submitted to HACS
+## Protocol
 
-## Implementation Plan
+Event type:
 
-### Part 1: Create Integration (custom_components)
-
-**Directory Structure:**
-
-```
-custom_components/acoustic_alarm_detector/
-├── __init__.py          # Integration setup
-├── manifest.json        # Integration metadata
-├── config_flow.py       # UI configuration
-├── const.py             # Constants
-├── binary_sensor.py     # Binary sensor platform
-├── strings.json         # UI strings (i18n)
-└── translations/
-    └── en.json          # English translations
+```text
+acoustic_alarm_detector_state
 ```
 
-**Key Files:**
-
-1. **manifest.json**
+Payload version 1:
 
 ```json
 {
-  "domain": "acoustic_alarm_detector",
-  "name": "Acoustic Alarm Detector",
-  "documentation": "https://github.com/...",
-  "requirements": [],
-  "codeowners": ["@yourusername"],
-  "config_flow": true,
-  "iot_class": "local_polling",
-  "version": "9.0.0"
+  "protocol_version": 1,
+  "detector_id": "smoke_alarm_detector",
+  "profile_id": "smoke",
+  "active": true,
+  "updated_at": "2026-07-25T12:30:00+00:00",
+  "source_version": "9.3.0"
 }
 ```
 
-2. **binary_sensor.py** - Creates native binary sensors
-3. **config_flow.py** - UI-based configuration
-4. ****init**.py** - Integration setup and WebSocket listener
+`detector_id` and `profile_id` must match the integration config entry. The integration ignores all unrelated events. `profile_id` identifies the engine pattern; the integration's separate `alarm_type` field controls the Home Assistant device class.
 
-### Part 2: Modify Add-on
+## Availability and recovery
 
-**Changes:**
+The entity starts unavailable. The add-on publishes an initial clear state and periodically replays its latest state. The first matching valid event marks the entity available.
 
-- Remove `ha_client.py` (no longer needed!)
-- Add WebSocket/HTTP client to send events to integration
-- Simplify to just audio processing
-- Can reduce permissions significantly
+During a Home Assistant outage, the publisher queue remains bounded to one latest value per profile. A newer state replaces an older unsent state. Delivery retries in the background and does not block the audio loop.
 
-**Updated config.yaml:**
+## Security boundary
 
-```yaml
-apparmor: true # Now possible!
-hassio_role: default # No longer need admin!
-hassio_api: false # Don't need it anymore
-homeassistant_api: false # Integration handles this
-```
+The add-on uses:
 
-## Communication Protocol
+- `homeassistant_api: true`;
+- the Supervisor-provided bearer token;
+- the internal `http://supervisor/core/api` proxy;
+- network access and the Home Assistant audio socket.
 
-### Option 1: WebSocket (Recommended)
+It does not require:
 
-```python
-# Add-on sends to Integration via WS
-{
-  "type": "alarm_detected",
-  "alarm_type": "smoke",
-  "state": "on"  # or "off"
-}
-```
+- `hassio_api: true`;
+- `/config` or `/homeassistant` mappings;
+- broad Home Assistant file access;
+- a custom WebSocket endpoint;
+- MQTT.
 
-### Option 2: HTTP Polling
+## Supervisor discovery
 
-Integration polls add-on's HTTP endpoint every few seconds.
+The add-on declares one `acoustic_alarm_detector` discovery service and publishes the active detector ID, profile ID, alarm category, protocol version, and source version through `POST /discovery`. Home Assistant invokes the integration's reserved `hassio` config-flow step and asks the user to confirm the discovered entry.
 
-## File Structure
+Both discovered and manual setup use the stable `detector_id + profile_id` unique ID. The Supervisor discovery UUID is transport metadata only and is never used as entity identity. This prevents duplicate entries when the add-on restarts or republishes discovery.
 
-```
-Project Root/
-├── alarm-audio-detector/           # Add-on (existing)
-│   ├── detector/
-│   │   ├── main.py
-│   │   ├── audio_detector.py
-│   │   ├── websocket_client.py   # NEW
-│   │   └── config.py
-│   ├── config.yaml
-│   └── ...
-│
-└── custom_components/             # NEW - Integration
-    └── acoustic_alarm_detector/
-        ├── __init__.py
-        ├── manifest.json
-        ├── binary_sensor.py
-        ├── config_flow.py
-        └── const.py
-```
-
-## Migration Path
-
-### Phase 1: Create Integration (current priority)
-
-1. Create custom_components structure
-2. Implement binary sensor platform
-3. Add config flow
-4. Test with mock data
-
-### Phase 2: Add Communication
-
-1. Add WebSocket server to integration
-2. Add WebSocket client to add-on
-3. Test bidirectional communication
-
-### Phase 3: Migrate Users
-
-1. Documentation for migration
-2. Keep both approaches working during transition
-3. Eventually deprecate REST API method
-
-## Next Steps
-
-Would you like me to:
-
-1. ✅ Create the full integration structure
-2. ✅ Implement the binary sensor platform
-3. ✅ Set up the config flow
-4. ✅ Modify the add-on to communicate with integration
-
-This is the proper "Home Assistant way" and will solve all your security concerns!
+The `/discovery*` Supervisor endpoints are available to apps without broad `hassio_api` access, so discovery does not expand the permission boundary.

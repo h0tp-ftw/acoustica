@@ -1,173 +1,105 @@
-# One-Click Installation Guide
+# Integration Setup for Development Testing
 
-## Overview
+The integration and add-on are separate components. The add-on never copies or overwrites Home Assistant integration files.
 
-The addon now **auto-installs the custom integration** - no manual copying needed! Just install the addon and it sets everything up automatically.
+## 1. Install the custom integration
 
-## Installation Steps
+Copy:
 
-### Step 1: Install the Add-on
-
-1. Copy the entire `alarm-audio-detector` folder to Home Assistant:
-
-   ```bash
-   # If using SSH:
-   scp -r alarm-audio-detector hassio@homeassistant.local:/addons/
-
-   # Or if using Samba:
-   # Copy the folder to the visible "addons" share
-   ```
-
-2. **Reload the Add-on Store:**
-
-   - Settings → Add-ons → ⋮ (top right) → Check for updates
-
-3. **Install the Add-on:**
-
-   - Settings → Add-ons → Add-on Store
-   - Scroll to "Local add-ons" section
-   - Click **"Acoustic Alarm Detector v9"**
-   - Click **INSTALL**
-
-4. **The integration installs automatically!**
-   - When the addon starts, it copies the integration to `/config/custom_components/`
-   - Check the addon logs - you should see: `✅ Integration installed to /config/custom_components/`
-
-### Step 2: Restart Home Assistant
-
-**Important:** Restart Home Assistant to load the new integration:
-
-- Settings → System → Restart
-- Wait for restart to complete
-
-### Step 3: Add the Integration
-
-1. **Go to Settings → Devices & Services**
-
-2. **Click "+ ADD INTEGRATION"**
-
-3. **Search for "Acoustic Alarm Detector"**
-
-4. **Configure:**
-
-   - **Device Name**: e.g., `kitchen_alarm`
-   - **Alarm Type**: `smoke` or `co`
-   - Click **SUBMIT**
-
-5. **A binary sensor is created!**
-   - Entity ID: `binary_sensor.kitchen_alarm_smoke` (or `_co`)
-   - Device: Shows in device list
-
-### Step 4: Configure the Add-on
-
-1. **Go to the add-on Configuration tab**
-
-2. **Set matching configuration:**
-
-   ```yaml
-   device_name: "kitchen_alarm" # Must match step 3!
-   alarm_type: "smoke" # Must match step 3!
-   target_frequency: 3133
-   frequency_tolerance: 250
-   min_magnitude_threshold: 0.25
-   beep_duration_min: 0.1
-   beep_duration_max: 1.5
-   pause_duration_min: 0.05
-   pause_duration_max: 2.5
-   confirmation_cycles: 1
-   ```
-
-3. **Start the add-on**
-
-4. **Check the logs** - you should see:
-   ```
-   ✅ Using Integration Client (native HA integration)
-   ```
-
-## That's It!
-
-The addon and integration are now working together. When an alarm is detected:
-
-1. Add-on detects the pattern
-2. Sends message to integration via WebSocket
-3. Integration updates the binary sensor
-4. Your automations trigger!
-
-## File Structure (Auto-Installed)
-
-After installation, Home Assistant will have:
-
-```
-/config/
-├── custom_components/
-│   └── acoustic_alarm_detector/   ← Auto-installed by addon!
-│       ├── __init__.py
-│       ├── binary_sensor.py
-│       ├── config_flow.py
-│       ├── const.py
-│       ├── manifest.json
-│       ├── strings.json
-│       └── translations/
-│           └── en.json
+```text
+custom_components/acoustic_alarm_detector
 ```
 
-## Benefits of Bundled Integration
+to:
 
-✅ **One-click installation** - Just install the addon  
-✅ **No manual file copying** - Integration auto-installs  
-✅ **Always in sync** - Addon and integration versions match  
-✅ **Easy updates** - Update addon, integration updates too  
-✅ **Simplified distribution** - Single package to share
+```text
+/config/custom_components/acoustic_alarm_detector
+```
 
-## How Auto-Install Works
+Restart Home Assistant after copying or updating the integration.
 
-1. Addon's `config.yaml` includes `map: ["config:rw"]`
-2. This gives addon read/write access to `/config` directory
-3. On startup, `run.sh` copies integration files:
-   ```bash
-   cp -r /app/custom_components /config/custom_components
-   ```
-4. After HA restart, integration is loaded
-5. User adds integration via UI
-6. Addon connects to integration via WebSocket
+## 2. Install and start the add-on
+
+Install this project as a local add-on. For the initial run, use a built-in preset:
+
+```yaml
+device_name: smoke_alarm_detector
+alarm_type: smoke
+profile_id: ""
+audio_device_index: -1
+```
+
+The add-on requires audio and `homeassistant_api: true`; both are already declared in `config.yaml`.
+
+## 3. Optionally learn a custom profile
+
+Open the add-on **Web UI**.
+
+1. Choose the host microphone. Applying a different selection saves it and restarts the add-on once.
+2. Enter a profile ID such as `hallway_smoke`.
+3. Start recording the add-on's microphone.
+4. Trigger the alarm test for at least two complete repetitions.
+5. Stop, analyze, and review the result.
+6. Save the profile.
+7. Run **Live test** from the saved-profile list. The test never publishes a Home Assistant alarm.
+8. Choose the Home Assistant category and press **Activate**. The add-on persists and hot-swaps the profile without restarting.
+
+The generated YAML is stored in `/data/profiles` and is loaded directly by the production detector.
+
+## 4. Confirm the discovered integration entry
+
+After the add-on starts, Home Assistant should surface a discovered **Acoustic Alarm Detector** integration. Open it and confirm the detector ID, active profile ID, and alarm category.
+
+The add-on republishes discovery after profile changes. Both discovered and manual setup use the stable detector/profile pair as the config-entry identity, so an add-on restart cannot create a duplicate entry.
+
+When discovery is unavailable, open **Settings → Devices & services → Add integration → Acoustic Alarm Detector** and enter the same values manually.
+
+The binary sensor initially appears unavailable. It becomes available when the add-on sends the first valid heartbeat. The alarm category controls only the binary-sensor device class.
+
+## 5. Verify communication
+
+In the add-on log, look for the Home Assistant publisher connection and queued clear state.
+
+In Home Assistant:
+
+1. Open **Developer tools → States**.
+2. Find the Acoustic Alarm Detector binary sensor.
+3. Confirm it is available.
+4. Use a controlled alarm test to verify activation and clearing.
+
+The entity attributes include detector ID, profile ID, alarm category, last update/heartbeat times, and add-on source version.
 
 ## Troubleshooting
 
-### Integration not auto-installed
+### Entity remains unavailable
 
-- **Check addon logs** for "Integration installed" message
-- **Verify** addon has `map: ["config:rw"]` in config.yaml
-- **Manually check** `/config/custom_components/acoustic_alarm_detector/` exists
+- Confirm the add-on is running.
+- Confirm both components use the same detector ID and profile ID.
+- Check the add-on log for a missing `SUPERVISOR_TOKEN` or Core API failure.
+- Confirm `homeassistant_api: true` remains in `config.yaml`.
+- Reload the integration; the add-on replays its latest state every 60 seconds.
 
-### Integration not appearing in UI
+### Saved profile does not start
 
-- **Restart Home Assistant** after first addon start
-- **Check** Settings → System → Logs for integration errors
-- **Verify** manifest.json is valid
+- Confirm the YAML exists under `/data/profiles/<profile_id>.yaml`.
+- Confirm the saved profile appears in the Web UI.
+- Try **Live test** before activation and check the add-on logs for validation errors.
+- Activate the profile from the Web UI; the active profile cannot be deleted until another one is selected.
 
-### Binary sensor not updating
+### Duplicate or unmanaged entity
 
-- **Check integration entry ID** matches addon config
-- **Verify** both use same device_name and alarm_type
-- **Look for** "State updated via Integration" in addon logs
+The current code does not write to `/api/states`, and discovered/manual flows share a stable unique ID. Remove entities left over from older test versions and reload the integration.
 
-### Using REST API fallback
+### Integration does not appear
 
-If you see "No integration entry ID" in logs:
+- Confirm the directory is named `acoustic_alarm_detector`.
+- Confirm `manifest.json` is directly inside that directory.
+- Restart Home Assistant and check the Core log for custom-component errors.
 
-- This means addon couldn't find integration
-- REST API fallback will be used
-- Still works but less secure than integration method
+### Add-on cannot access audio
 
-## Security Note
+Open the add-on Web UI and refresh the microphone list. Select the host input and apply it; the add-on restarts once to reopen the stream. The add-on does not change microphone gain automatically, and the guided recorder uses the same stream as live detection.
 
-The addon needs `map: ["config:rw"]` to auto-install the integration. This is safe because:
+## Current limitation
 
-- Only writes to `/config/custom_components` (standard location)
-- Only on first startup (idempotent operation)
-- Doesn't modify existing files
-- Standard practice for addons that provide integrations
-
----
-
-**Enjoy your truly one-click alarm detection system!** 🎉
+Manual custom-integration file installation remains development-only. Guided calibration, hot activation, and Supervisor discovery are implemented; a supported integration distribution path remains future work.

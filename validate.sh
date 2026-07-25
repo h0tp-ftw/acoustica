@@ -1,179 +1,119 @@
-#!/bin/bash
-# Quick validation script for Acoustic Alarm Detector add-on
-# Run this before deploying to Home Assistant
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=========================================="
-echo "Acoustic Alarm Detector - Pre-Flight Check"
-echo "=========================================="
-echo ""
+cd "$(dirname "$0")"
 
-ERRORS=0
-WARNINGS=0
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
 
-# Check 1: Directory structure
-echo "✓ Checking directory structure..."
-if [ ! -f "Dockerfile" ]; then
-    echo "  ❌ ERROR: Dockerfile not found"
-    ERRORS=$((ERRORS + 1))
-else
-    echo "  ✓ Dockerfile exists"
-fi
-
-if [ ! -f "config.yaml" ]; then
-    echo "  ❌ ERROR: config.yaml not found"
-    ERRORS=$((ERRORS + 1))
-else
-    echo "  ✓ config.yaml exists"
-fi
-
-if [ ! -f "run.sh" ]; then
-    echo "  ❌ ERROR: run.sh not found"
-    ERRORS=$((ERRORS + 1))
-else
-    echo "  ✓ run.sh exists"
-    if [ ! -x "run.sh" ]; then
-        echo "  ⚠️  WARNING: run.sh is not executable"
-        WARNINGS=$((WARNINGS + 1))
-    else
-        echo "  ✓ run.sh is executable"
-    fi
-fi
-
-if [ ! -f "requirements.txt" ]; then
-    echo "  ❌ ERROR: requirements.txt not found"
-    ERRORS=$((ERRORS + 1))
-else
-    echo "  ✓ requirements.txt exists"
-    # Check if it contains Python packages
-    if grep -q "FROM" requirements.txt; then
-        echo "  ❌ ERROR: requirements.txt contains Dockerfile content!"
-        ERRORS=$((ERRORS + 1))
-    elif grep -q "pyaudio" requirements.txt; then
-        echo "  ✓ requirements.txt looks valid"
-    else
-        echo "  ⚠️  WARNING: requirements.txt may be empty or invalid"
-        WARNINGS=$((WARNINGS + 1))
-    fi
-fi
-
-if [ ! -d "detector" ]; then
-    echo "  ❌ ERROR: detector/ directory not found"
-    ERRORS=$((ERRORS + 1))
-else
-    echo "  ✓ detector/ directory exists"
-fi
-
-echo ""
-
-# Check 2: Python files
-echo "✓ Checking Python files..."
-PYTHON_FILES=(
-    "detector/__init__.py"
-    "detector/main.py"
-    "detector/audio_detector.py"
-    "detector/mqtt_client.py"
-    "detector/config.py"
-)
-
-for file in "${PYTHON_FILES[@]}"; do
-    if [ ! -f "$file" ]; then
-        echo "  ❌ ERROR: $file not found"
-        ERRORS=$((ERRORS + 1))
-    else
-        echo "  ✓ $file exists"
-    fi
+for path in Dockerfile config.yaml requirements.txt run.sh apparmor.txt detector/main.py custom_components/acoustic_alarm_detector/runtime.py; do
+    [[ -e "$path" ]] || fail "Missing required file: $path"
 done
 
-echo ""
+grep -q '^FROM ghcr.io/home-assistant/base:' Dockerfile \
+    || fail "Dockerfile must use an explicit Home Assistant base image"
+grep -q '^acoustic-engine==1\.4\.0$' requirements.txt \
+    || fail "acoustic-engine must remain pinned to 1.4.0"
+grep -q 'python3 -u -m detector\.main' run.sh \
+    || fail "run.sh must use the canonical package entry point"
+grep -q '^ingress: true$' config.yaml \
+    || fail "The guided profile UI must remain available through ingress"
+grep -q '^ingress_port: 8099$' config.yaml \
+    || fail "The ingress port must match the profile server"
+grep -q 'COPY tuner/index.html tuner/styles.css tuner/audio-engine.js tuner/app.js ./tuner/' Dockerfile \
+    || fail "Dockerfile must include the guided UI assets"
+grep -q "export_option '.profile_id' PROFILE_ID" run.sh \
+    || fail "run.sh must export the selected canonical profile ID"
+grep -q "export_option '.audio_device_index' AUDIO_DEVICE_INDEX" run.sh \
+    || fail "run.sh must export the selected microphone"
+grep -q '^  audio_device_index: -1$' config.yaml \
+    || fail "The default microphone must remain schema-backed"
+grep -q '"/api/audio/select"' detector/profile_server.py \
+    || fail "Ingress must expose the single microphone-selection path"
+grep -q '"/api/profiles/.*activate"\|/activate' detector/profile_server.py \
+    || fail "Ingress must expose hot profile activation"
 
-# Check 3: Dockerfile validation
-echo "✓ Checking Dockerfile..."
-if grep -q "ARG BUILD_FROM" Dockerfile; then
-    echo "  ✓ Uses BUILD_FROM pattern"
-else
-    echo "  ⚠️  WARNING: Missing ARG BUILD_FROM"
-    WARNINGS=$((WARNINGS + 1))
+if grep -q 'custom_components' run.sh; then
+    fail "The add-on must not auto-copy the Home Assistant integration"
+fi
+if grep -q 'set-source-volume' run.sh; then
+    fail "The add-on must not change global microphone volume"
+fi
+if grep -R -Eq 'getUserMedia|estimateFrequency|zero.cross|AudioContext|MediaRecorder' tuner/index.html tuner/audio-engine.js tuner/app.js; then
+    fail "The ingress UI must use the add-on microphone and real engine, not browser DSP"
 fi
 
-if grep -q "WORKDIR /app" Dockerfile; then
-    echo "  ✓ Sets WORKDIR to /app"
-else
-    echo "  ⚠️  WARNING: WORKDIR not set to /app"
-    WARNINGS=$((WARNINGS + 1))
+if grep -Eq '^  - (armhf|armv7)$' config.yaml; then
+    fail "Unsupported 32-bit architectures are still declared"
+fi
+if grep -Eq '^(map:|hassio_api:)' config.yaml; then
+    fail "Broad Home Assistant/Supervisor access must not be reintroduced"
+fi
+if grep -R -q '/states/' detector; then
+    fail "The add-on must not write Home Assistant entity states directly"
+fi
+if grep -R -q 'websocket' custom_components/acoustic_alarm_detector --include='*.py'; then
+    fail "The integration must not register a second WebSocket state path"
+fi
+if grep -qE '/(config|homeassistant)/\*\*' apparmor.txt; then
+    fail "AppArmor must not grant broad Home Assistant configuration access"
+fi
+if ! grep -q '^homeassistant_api: true$' config.yaml; then
+    fail "The add-on must enable the Home Assistant Core API proxy"
+fi
+if ! grep -A1 '^discovery:' config.yaml | grep -q 'acoustic_alarm_detector'; then
+    fail "The add-on must declare its Supervisor discovery service"
+fi
+if ! grep -q '"/discovery"' detector/integration_client.py; then
+    fail "Integration pairing must use the limited Supervisor discovery endpoint"
+fi
+if grep -Eq '^map:|config:rw|homeassistant:rw' config.yaml; then
+    fail "The add-on must not map the Home Assistant configuration directory"
+fi
+if grep -R -q '/states/' detector custom_components --include='*.py'; then
+    fail "Entity state must be owned by the integration, not written through /states"
+fi
+if grep -R -q 'websocket' custom_components/acoustic_alarm_detector --include='*.py'; then
+    fail "The integration must use the single event protocol, not a second WebSocket path"
+fi
+if grep -Eq '/(config|homeassistant)/' apparmor.txt; then
+    fail "AppArmor must not grant access to Home Assistant configuration files"
 fi
 
-if grep -q "chmod.*run.sh" Dockerfile; then
-    if grep -q "chmod.*\/app\/run.sh" Dockerfile; then
-        echo "  ✓ chmod uses correct path (/app/run.sh)"
-    else
-        echo "  ❌ ERROR: chmod uses wrong path (should be /app/run.sh)"
-        ERRORS=$((ERRORS + 1))
-    fi
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+    read -r -a PYTHON_CMD <<< "$PYTHON_BIN"
+elif command -v py >/dev/null 2>&1 && py -3.12 -c "import sys" >/dev/null 2>&1; then
+    PYTHON_CMD=(py -3.12 -X utf8)
+elif command -v python3 >/dev/null 2>&1 && python3 -c "import sys" >/dev/null 2>&1; then
+    PYTHON_CMD=(python3)
+elif command -v python >/dev/null 2>&1 && python -c "import sys" >/dev/null 2>&1; then
+    PYTHON_CMD=(python)
 else
-    echo "  ⚠️  WARNING: No chmod command for run.sh"
-    WARNINGS=$((WARNINGS + 1))
+    fail "A working Python interpreter is required"
 fi
 
-echo ""
+"${PYTHON_CMD[@]}" -m compileall -q detector tests custom_components
+"${PYTHON_CMD[@]}" -c '
+import json
+from pathlib import Path
+import yaml
 
-# Check 4: config.yaml validation
-echo "✓ Checking config.yaml..."
-if grep -q "name:" config.yaml && grep -q "version:" config.yaml && grep -q "slug:" config.yaml; then
-    echo "  ✓ Contains required fields (name, version, slug)"
-else
-    echo "  ❌ ERROR: Missing required fields in config.yaml"
-    ERRORS=$((ERRORS + 1))
+yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
+json.loads(Path("custom_components/acoustic_alarm_detector/manifest.json").read_text(encoding="utf-8"))
+'
+"${PYTHON_CMD[@]}" -m pytest
+
+if command -v node >/dev/null 2>&1; then
+    node --check tuner/audio-engine.js
+    node --check tuner/app.js
 fi
 
-if grep -q "audio: true" config.yaml; then
-    echo "  ✓ Audio access enabled"
+if command -v docker >/dev/null 2>&1; then
+    docker build --pull -t local/acoustic-alarm-detector:validation .
 else
-    echo "  ⚠️  WARNING: audio: true not set"
-    WARNINGS=$((WARNINGS + 1))
+    echo "WARNING: Docker is unavailable; container build was not executed." >&2
 fi
 
-if grep -q "/dev/snd" config.yaml; then
-    echo "  ✓ Audio device mapping configured"
-else
-    echo "  ⚠️  WARNING: /dev/snd device mapping not found"
-    WARNINGS=$((WARNINGS + 1))
-fi
-
-echo ""
-
-# Check 5: run.sh validation
-echo "✓ Checking run.sh..."
-if grep -q "bashio::config" run.sh; then
-    echo "  ✓ Uses bashio for configuration"
-else
-    echo "  ❌ ERROR: Missing bashio::config calls"
-    ERRORS=$((ERRORS + 1))
-fi
-
-if grep -q "python3.*main.py" run.sh; then
-    echo "  ✓ Launches main.py"
-else
-    echo "  ❌ ERROR: Doesn't launch main.py"
-    ERRORS=$((ERRORS + 1))
-fi
-
-echo ""
-
-# Summary
-echo "=========================================="
-echo "VALIDATION SUMMARY"
-echo "=========================================="
-echo "Errors:   $ERRORS"
-echo "Warnings: $WARNINGS"
-echo ""
-
-if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo "✅ ALL CHECKS PASSED! Ready to deploy."
-    exit 0
-elif [ $ERRORS -eq 0 ]; then
-    echo "⚠️  PASSED WITH WARNINGS. Review warnings above."
-    exit 0
-else
-    echo "❌ VALIDATION FAILED! Fix errors before deploying."
-    exit 1
-fi
+echo "Validation complete."

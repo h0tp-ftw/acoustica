@@ -154,4 +154,4 @@ alarm_audio_detector:
 - Wake Word Detection API pattern (for audio stream handling)
 - Binary Sensor platform implementation
 - Config Entries flow for multi-entity setup
-- WebSocket events for real-time updates
+- Versioned Home Assistant Core events for local push updates
