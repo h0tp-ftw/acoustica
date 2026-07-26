@@ -12,6 +12,8 @@ for path in \
     Dockerfile \
     config.yaml \
     requirements.txt \
+    constraints.txt \
+    requirements-dev.txt \
     run.sh \
     detector/main.py \
     detector/integration_client.py \
@@ -31,6 +33,12 @@ grep -q 'COPY tuner/ ./tuner/' Dockerfile \
     || fail "The image must package the injected tuner assets"
 grep -q 'EVENT_STATE_UPDATE = "acoustica_state"' detector/integration_client.py \
     || fail "The versioned integration event changed unexpectedly"
+grep -q '/api/acoustica/detectors/disable' detector/tuner_server.py \
+    || fail "Detector disable controls must remain exposed through ingress"
+
+if grep -Eq '(^|[[:space:]])[^#[:space:]]+(>=|~=|>)' requirements.txt constraints.txt; then
+    fail "Runtime dependencies must remain exactly pinned"
+fi
 
 if grep -R -Eq 'getUserMedia|MediaRecorder|AudioContext' tuner; then
     fail "Acoustica controls must not open the browser microphone"
@@ -63,10 +71,13 @@ if command -v node >/dev/null 2>&1; then
     node --check tuner/acoustica-controls.js
 fi
 
-if command -v docker >/dev/null 2>&1; then
-    docker build --pull -t local/acoustica:validation .
+if [[ "${RUN_DOCKER_BUILD:-0}" == "1" ]]; then
+    command -v docker >/dev/null 2>&1 || fail "Docker was requested but is unavailable"
+    docker build --pull \
+        --build-arg "BUILD_FROM=${BUILD_FROM:-ghcr.io/home-assistant/amd64-base:3.21}" \
+        -t local/acoustica:validation .
 else
-    echo "WARNING: Docker is unavailable; container build was not executed." >&2
+    echo "Docker build is handled by the dedicated multi-architecture CI job."
 fi
 
 echo "Validation complete."

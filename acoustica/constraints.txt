@@ -1,0 +1,18 @@
+# Fully resolved runtime set validated with Python 3.12.
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.1
+cffi==2.0.0
+click==8.3.2
+h11==0.16.0
+idna==3.11
+numpy==2.4.1
+pydantic==2.12.5
+pydantic-core==2.41.5
+PyAudio==0.2.14
+pycparser==3.0
+PyYAML==6.0.3
+sounddevice==0.5.5
+starlette==0.50.0
+typing-extensions==4.15.0
+typing-inspection==0.4.2

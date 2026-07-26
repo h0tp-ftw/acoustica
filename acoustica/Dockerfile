@@ -34,9 +34,9 @@ ENV PYTHONPATH=/app
 
 # Install the detection engine (+ PyAudio fallback backend) and its deps.
 # --prefer-binary uses musllinux wheels for numpy/cffi instead of building them.
-COPY requirements.txt .
+COPY requirements.txt constraints.txt ./
 RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binary \
-        -r requirements.txt
+        -c constraints.txt -r requirements.txt
 
 # Application code
 COPY detector/ ./detector/
