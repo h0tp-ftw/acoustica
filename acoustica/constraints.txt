@@ -1,7 +1,7 @@
 # Fully resolved runtime set validated with Python 3.12.
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==4.12.1
+anyio==4.14.2
 cffi==2.0.0
 click==8.3.2
 h11==0.16.0
