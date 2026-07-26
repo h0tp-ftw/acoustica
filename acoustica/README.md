@@ -1,168 +1,183 @@
-# 🔊 Acoustica for Home Assistant
+# Acoustica for Home Assistant
 
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey.svg)](LICENSE)
-&nbsp;**Non-commercial use only.**
+Acoustica listens to a microphone connected to Home Assistant and turns repetitive tonal sounds—smoke and CO alarms, appliance jingles, timers, and similar patterns—into Home Assistant binary sensors. Processing is local and powered by `acoustic-engine`.
 
-Listen on a microphone (e.g. the HAOS machine's own mic) and turn alarms and
-beeps — smoke/CO alarms, a washing-machine jingle, an oven timer — into Home
-Assistant **binary sensors**. 100% local, no cloud, **no MQTT broker**.
+> **Development release 10.4.0.** Acoustica supplements certified alarms; it does not replace them. Keep certified alarms installed, audible, tested, and maintained according to their instructions.
 
-Detection is powered by the standalone
-[**acoustic-engine**](https://github.com/h0tp-ftw/acoustic-engine): deterministic
-DSP (FFT + temporal pattern matching), not a neural network — low CPU, runs fine
-on a Raspberry Pi, and needs no training data.
+## Architecture
 
-## How it works
-
+```text
+Microphone
+   │
+   ▼
+Acoustica add-on
+  acoustic-engine capture, DSP, matching, tuner, profiles
+  hot-reloadable detector generations
+  bounded Home Assistant state publisher
+   │ versioned Core events + Supervisor discovery
+   ▼
+Acoustica custom integration
+  integration-owned binary sensors
+  heartbeat availability and diagnostics
 ```
-            ┌─────────────────────── HAOS machine ───────────────────────┐
- microphone │  Add-on (this repo)                  Home Assistant Core    │
-   ───────▶ │  acoustic-engine ──detection──▶ HA event ──▶ Integration    │
-            │  (DSP + matching)               (event bus)   binary_sensor │
-            └─────────────────────────────────────────────────────────────┘
-```
 
-There are **two parts**, both in this repo:
-
-1. **The add-on** — captures audio and runs the engine. On each detection it fires
-   an event on Home Assistant's event bus.
-2. **The custom integration** — listens for those events and exposes one
-   `binary_sensor` per detector, grouped under a single **Acoustica**
-   device (so it shows up under *Settings → Devices & Services* like any normal
-   device). The add-on auto-installs it into `/config`.
+The detector callback never waits for Home Assistant. It queues only the newest state per profile, retries failed delivery, and periodically replays the latest snapshot so integration reloads recover automatically.
 
 ## Installation
 
-1. **Add this repository as a custom add-on repository**
-   (*Settings → Add-ons → Add-on Store → ⋮ → Repositories*), paste this repo's
-   URL, then install **Acoustica**.
-   *(Or copy this folder into `/addons/` for a local add-on.)*
-2. **Start the add-on.** On first start it copies the companion integration into
-   `/config/custom_components/` (watch the log for the confirmation).
-3. **Restart Home Assistant Core once** (*Settings → System → Restart*) so the new
-   integration is loaded.
-4. **Add the integration:** *Settings → Devices & Services → + Add Integration →
-   “Acoustica” → Submit*. A device appears with one sensor per
-   detector. You only do this once — it serves every detector.
+1. Add this repository in **Settings → Add-ons → Add-on Store → ⋮ → Repositories**.
+2. Install and start **Acoustica**.
+3. Restart Home Assistant Core once after the first start so the bundled custom integration is loaded.
+4. Open **Settings → Devices & services** and confirm the discovered **Acoustica** integration.
 
-With the default options you immediately get two sensors:
-`binary_sensor.acoustica_smoke_alarm` and
-`binary_sensor.acoustica_co_alarm`.
+The add-on currently copies its bundled integration to `/config/custom_components/acoustica` for compatibility with existing installs. Supervisor discovery handles the pairing flow after Home Assistant loads the integration. **Add integration → Acoustica** remains a manual fallback.
 
-## Configuration
+See [QUICKSTART.md](QUICKSTART.md) for the shortest setup path.
 
-Each entry under `detectors` becomes one binary sensor. Give it **one** source:
+## Default detectors
 
-| Source     | Meaning                                                                 |
-| ---------- | ----------------------------------------------------------------------- |
-| `preset`   | A built-in pattern: `smoke_t3` (smoke) or `co_t4` (carbon monoxide).    |
-| `profile`  | A profile YAML you placed under `/config/acoustica/profiles/`. |
-| `learn`    | A recording (WAV) under `/config/acoustica/sounds/` — the add-on turns it into a profile on first run. |
+The default add-on options enable the engine's standardized smoke T3 and carbon-monoxide T4 presets:
 
 ```yaml
 detectors:
-  - name: "Smoke Alarm"
-    preset: "smoke_t3"
-    device_class: "smoke"
-  - name: "CO Alarm"
-    preset: "co_t4"
-    device_class: "carbon_monoxide"
-  - name: "Washing Machine"
-    profile: "washing_machine.yaml"   # see the examples in this repo's profiles/
-    device_class: "running"
-  - name: "Dryer"
-    learn: "dryer.wav"                 # learned into profiles/dryer.yaml
-    device_class: "sound"
+  - name: Smoke Alarm
+    preset: smoke_t3
+    device_class: smoke
+  - name: CO Alarm
+    preset: co_t4
+    device_class: carbon_monoxide
 sample_rate: 44100
-# device_index: 1     # set only if you have several mics (see Troubleshooting)
-hold_seconds: 30      # how long a sensor stays "on" after the last detection
+device_index: -1
+hold_seconds: 30
 debug: false
 ```
 
-`device_class` controls the sensor's icon/semantics. Common values: `smoke`,
-`carbon_monoxide`, `gas`, `sound`, `moisture`, `safety`, `problem`, `running`,
-`vibration`. Unknown values fall back to `sound`.
+`device_index: -1` means the system default microphone.
 
-## Make a detector from your own sound
+## Guided Web UI
 
-Three options, easiest first:
+Open the add-on **Web UI** through Home Assistant ingress. The existing acoustic-engine tuner remains the recording and validation surface. Acoustica injects a runtime panel that adds:
 
-1. **Learn from a recording (no DSP knowledge).** Record the sound (e.g. press
-   your appliance's done-button), save it as a 16-bit mono WAV under
-   `/config/acoustica/sounds/`, and add a detector with
-   `learn: "myfile.wav"`. The add-on extracts the tone/timing pattern and writes a
-   profile to `…/profiles/myfile.yaml` you can inspect and tweak.
-2. **Hand-write a profile YAML.** Copy one of the examples in [`profiles/`](profiles/)
-   into `/config/acoustica/profiles/`, edit the frequencies/durations,
-   and reference it with `profile: "myfile.yaml"`. Bundles (multiple profiles in one
-   file) are supported — each becomes its own sensor.
-3. **Use the engine's browser tuner** for visual, validated tuning — see the
-   [acoustic-engine docs](https://github.com/h0tp-ftw/acoustic-engine#profile-tuner-browser-app).
+- listening, Home Assistant, active-match, and last-detection status;
+- microphone enumeration and live selection;
+- the list of active detectors;
+- one-click enablement of saved canonical profiles;
+- active-profile deletion protection.
 
-> The engine is built for **repetitive, tonal** sounds (alarms, beeps, jingles).
-> It is *not* meant for one-off beeps or non-tonal sounds like speech, glass
-> breaking, or a dog barking.
+The tuner records from the Home Assistant host microphone, not the browser microphone. Saved profiles are canonical engine YAML and are loaded directly by the production detector.
 
-## Automations
+### Enable a learned profile
 
-The sensors are ordinary binary sensors — trigger on `to: "on"`:
+1. Record several repetitions of the sound in the tuner.
+2. Review and validate the generated profile using the real engine pipeline.
+3. Save it.
+4. Choose a Home Assistant device class in the Acoustica runtime panel.
+5. Select **Enable**.
 
-```yaml
-automation:
-  - alias: "Smoke alarm alert"
-    triggers:
-      - trigger: state
-        entity_id: binary_sensor.acoustica_smoke_alarm
-        to: "on"
-    actions:
-      - action: notify.mobile_app_your_phone
-        data:
-          title: "🚨 Smoke alarm detected!"
-          message: "An acoustic smoke-alarm pattern was heard."
+Acoustica validates the complete candidate configuration, persists the complete option set through Supervisor, stops the current engine generation, and starts the new generation in the same process. Failed option persistence leaves the current runtime untouched.
+
+### Profile storage and migration
+
+New profiles are stored in add-on-owned persistent storage:
+
+```text
+/data/profiles/<profile>.yaml
 ```
 
-More examples (notifications, lights, TTS) in [`docs/AUTOMATIONS.md`](docs/AUTOMATIONS.md)
-— update the `entity_id`s to the `binary_sensor.acoustica_*` names.
+On startup, profiles from older releases under `/config/acoustica/profiles` are copied into `/data/profiles` when a file with the same name does not already exist.
 
-## Troubleshooting
+## Add-on options
 
-- **No sensors / integration missing:** start the add-on once, then **restart HA
-  Core** before adding the integration (the integration files only load on a Core
-  restart).
-- **Nothing is detected / mic not working:** set `debug: true` and check the add-on
-  log — it lists the PulseAudio sources and the audio backend it opened. Confirm
-  *Settings → System → Hardware* shows your microphone. If you have more than one
-  input, set `device_index` to the right one.
-- **Misses a real alarm or false-triggers:** presets target standardized alarms
-  (~3 kHz). For other sounds, prefer `learn`/a custom `profile` tuned to your sound.
-  Raising/lowering tolerances lives in the profile YAML (see the engine's
-  [profiles & tuning docs](https://github.com/h0tp-ftw/acoustic-engine/blob/main/docs/profiles.md)).
-- **Sensor stays on too long / clears too fast:** adjust `hold_seconds`.
+Each detector entry must use one source:
+
+| Source | Meaning |
+| --- | --- |
+| `preset` | Built-in `smoke_t3` or `co_t4`. |
+| `profile` | Canonical YAML under `/data/profiles`; normally enabled through the Web UI. |
+| `learn` | WAV under `/data/sounds`, learned on startup and saved as a profile. |
+
+Supported Home Assistant device classes include `smoke`, `carbon_monoxide`, `gas`, `sound`, `moisture`, `safety`, `problem`, `running`, and `vibration`.
+
+`hold_seconds` controls how long a sensor remains on after the last confirmed detection. Repeated matches rearm one clear timer.
+
+## Home Assistant protocol
+
+The add-on publishes the versioned event:
+
+```text
+acoustica_state
+```
+
+Example event data:
+
+```json
+{
+  "protocol_version": 1,
+  "profile_id": "Smoke Alarm",
+  "device_class": "smoke",
+  "active": true,
+  "updated_at": "2026-07-26T12:00:00+00:00",
+  "source_version": "10.4.0"
+}
+```
+
+The integration rejects unrelated or unsupported payloads, creates entities dynamically from valid events, and marks a sensor unavailable after missed heartbeats.
+
+## Runtime controls
+
+The detector process exposes a loopback-only control API on `127.0.0.1:8100`. The ingress wrapper is the only intended client. It supports read-only health, profile activation, and microphone selection. The control service is not exposed as an add-on port.
+
+## Development
+
+From the `acoustica` directory:
+
+```bash
+python -m pytest
+node --check tuner/acoustica-controls.js
+```
+
+Or run the complete local gate:
+
+```bash
+bash validate.sh
+```
+
+The validation script checks Python compilation, YAML/JSON parsing, JavaScript syntax when Node.js is available, the pytest suite, release-version consistency, and the container build when Docker is available.
+
+Local tests cover configuration sources, real synthetic alarm matching, non-blocking state transport, retries and heartbeat snapshots, clear-timer rearming, Supervisor discovery, protocol validation, runtime reload rollback, microphone changes, ingress injection, profile deletion protection, and version consistency.
+
+## Known release verification work
+
+The source tree is locally validated, but the following still require an appliance-capable environment:
+
+- multi-architecture container builds;
+- microphone enumeration and index stability on Home Assistant OS;
+- PulseAudio capture under the shipped AppArmor profile;
+- Supervisor discovery and integration confirmation on a live Home Assistant instance;
+- repeated hot reloads while real audio capture is active.
 
 ## Project layout
 
-```
+```text
 acoustica/
-├── config.yaml                 # Add-on manifest + options schema
-├── Dockerfile, run.sh          # Add-on image + startup (audio + integration install)
-├── requirements.txt            # Pins acoustic-engine
-├── detector/                   # Thin bridge: options → engine → HA events
-│   ├── config.py               #   read options.json → AlarmProfiles
-│   ├── ha_bridge.py            #   detections → HA binary_sensor state
-│   └── main.py                 #   wire ParallelEngine + bridge
-├── custom_components/acoustica/   # The HA integration (sensors)
-├── profiles/                   # Example profile YAMLs you can copy & tweak
-├── tests/test_addon.py         # End-to-end tests (no mic / no HA needed)
-└── docs/                       # ALSA setup, automation examples
+├── config.yaml
+├── Dockerfile
+├── run.sh
+├── detector/
+│   ├── config.py
+│   ├── integration_client.py
+│   ├── ha_bridge.py
+│   ├── control_server.py
+│   ├── tuner_server.py
+│   └── main.py
+├── tuner/
+│   ├── acoustica-controls.js
+│   └── acoustica-controls.css
+├── custom_components/acoustica/
+├── tests/
+└── validate.sh
 ```
 
-## Credits & license
+## License
 
-Detection by [acoustic-engine](https://github.com/h0tp-ftw/acoustic-engine), by
-**@h0tp-ftw**.
-
-This add-on is licensed under the **PolyForm Noncommercial License 1.0.0** — see
-[LICENSE](LICENSE). You may use, modify, and share it freely for **personal and any
-other non-commercial** purpose, with credit to @h0tp-ftw. **Commercial use is not
-permitted.** (PolyForm is purpose-built for software; Creative Commons advises
-against using CC licenses for code.)
+This project is licensed under the PolyForm Noncommercial License 1.0.0. The pinned `acoustic-engine` dependency has its own license and distribution terms.

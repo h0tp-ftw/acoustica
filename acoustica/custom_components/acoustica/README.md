@@ -1,35 +1,36 @@
-# Acoustica — Home Assistant integration
+# Acoustica Home Assistant Integration
 
-The companion integration for the **Acoustica add-on**. It exposes
-one `binary_sensor` per detector the add-on reports, all grouped under a single
-**Acoustica** device.
+This companion integration exposes one Home Assistant `binary_sensor` for each detector reported by the Acoustica add-on. All sensors are grouped under one Acoustica device.
 
-You normally don't install this by hand — the add-on copies it into
-`/config/custom_components/` on first start. After that:
+The add-on currently installs this directory under `/config/custom_components/acoustica` for compatibility. Restart Home Assistant Core once after the first add-on start. Supervisor discovery should then offer an **Acoustica** integration confirmation; **Add integration → Acoustica** is the manual fallback.
 
-1. Restart Home Assistant Core once.
-2. *Settings → Devices & Services → + Add Integration → “Acoustica”*.
+## Protocol
 
-## How it works
+The add-on publishes versioned `acoustica_state` events through the authenticated Home Assistant Core API proxy. Event payloads include:
 
-- The add-on does the listening and fires an `acoustica_event` on
-  Home Assistant's event bus (`{name, state, device_class}`) via the Supervisor
-  REST proxy — no MQTT broker, no websocket auth.
-- This integration listens for that event and updates the matching sensor. Sensors
-  are created from the add-on's discovery file
-  (`/config/acoustica/profiles.json`) at setup, and any detector not
-  yet seen is added automatically the first time its event arrives.
-- One config entry serves every detector (single instance).
+- `protocol_version`;
+- `profile_id`;
+- `device_class`;
+- `active`;
+- `updated_at`;
+- `source_version`.
+
+The integration validates the protocol, creates entities dynamically from valid events, and ignores unrelated or unsupported payloads. It marks a detector unavailable after its heartbeat expires and exposes non-sensitive diagnostics through Home Assistant.
+
+No MQTT broker, shared discovery file, direct entity-state write, or custom WebSocket command is used.
 
 ## Files
 
-```
-__init__.py        # config entry + event-bus listener
-binary_sensor.py   # the sensor entities (one device, N sensors)
-config_flow.py     # single confirm step
-const.py           # DOMAIN, event/discovery paths
+```text
+__init__.py        Config-entry lifecycle, event listener, stale timers
+binary_sensor.py   Integration-owned binary sensor entities
+config_flow.py     Supervisor discovery confirmation and manual fallback
+const.py           Protocol parsing and constants
+runtime.py         Per-profile runtime state
+diagnostics.py     Config-entry diagnostics
 manifest.json
-strings.json, translations/en.json
+strings.json
+translations/en.json
 ```
 
-Version 10.0.0
+Version 10.4.0

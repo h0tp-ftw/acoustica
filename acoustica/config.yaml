@@ -1,5 +1,5 @@
 name: "Acoustica"
-version: "10.3.1"
+version: "10.4.0"
 slug: "acoustica"
 description: "Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into Home Assistant binary sensors"
 url: "https://github.com/h0tp-ftw/acoustica"
