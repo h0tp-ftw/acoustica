@@ -142,10 +142,15 @@
     elements.lastDetection.textContent = last && last.at ? new Date(last.at).toLocaleString() : "Never";
     elements.summary.textContent = `${(status.detectors || []).length} detector(s) · generation ${status.generation ?? 0}`;
 
-    if (runtimeState === "listening" && haConnected) {
+    const lastError = status.last_error;
+    if (runtimeState === "listening" && lastError) {
+      elements.guidance.textContent = `Listening after automatic recovery. Last issue: ${lastError}`;
+    } else if (runtimeState === "listening" && haConnected) {
       elements.guidance.textContent = "Listening normally. Use the tuner below to record and validate a profile, then enable it here.";
-    } else if (runtimeState === "reloading") {
-      elements.guidance.textContent = "Applying the new detector or microphone selection…";
+    } else if (runtimeState === "validating") {
+      elements.guidance.textContent = "Checking that the selected microphone can open before saving the change…";
+    } else if (runtimeState === "reloading" || runtimeState === "recovering") {
+      elements.guidance.textContent = "Applying the change or restoring the previous working audio generation…";
     } else if (!haConnected) {
       elements.guidance.textContent = "Detection continues locally. Home Assistant updates will retry automatically.";
     } else {

@@ -54,9 +54,14 @@ if [ -S "/run/audio/pulse.sock" ]; then
         log_warn "No PulseAudio sources — no microphone is available to the host."
     fi
 
-    # Make sure the default mic isn't muted / is at full gain.
-    pactl set-source-mute @DEFAULT_SOURCE@ false &>/dev/null || true
-    pactl set-source-volume @DEFAULT_SOURCE@ 100% &>/dev/null || true
+    # Report host gain state without changing it behind the user's back.
+    DEFAULT_MUTE="$(pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null || true)"
+    DEFAULT_VOLUME="$(pactl get-source-volume @DEFAULT_SOURCE@ 2>/dev/null || true)"
+    [ -n "$DEFAULT_MUTE" ] && log_info "Default microphone: $DEFAULT_MUTE"
+    [ -n "$DEFAULT_VOLUME" ] && log_info "Default microphone: $DEFAULT_VOLUME"
+    if printf '%s' "$DEFAULT_MUTE" | grep -qi 'yes'; then
+        log_warn "The default microphone is muted; unmute it in Home Assistant or the host audio settings."
+    fi
 else
     log_warn "PulseAudio socket not found at /run/audio/pulse.sock — the mic may be unavailable."
     log_warn "Confirm 'audio: true' for the add-on and that a microphone is attached."
@@ -78,8 +83,16 @@ if [ -d "$LEGACY_PROFILES_DIR" ]; then
     done
 fi
 if python3 -c "import acoustic_engine.tuner.validate; import detector.tuner_server" >/dev/null 2>&1; then
-    python3 -m detector.tuner_server --host 0.0.0.0 --port 8099 \
-        --profiles-dir "$TUNER_PROFILES_DIR" &
+    run_tuner() {
+        while true; do
+            python3 -m detector.tuner_server --host 0.0.0.0 --port 8099 \
+                --profiles-dir "$TUNER_PROFILES_DIR"
+            rc=$?
+            log_warn "Tuner server exited (rc=$rc); restarting in 5 seconds."
+            sleep 5
+        done
+    }
+    run_tuner &
     log_info "Tuner UI and runtime controls are available on ingress port 8099."
 else
     log_warn "Tuner server unavailable (engine + FastAPI dependencies could not import)."
