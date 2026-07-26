@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="http://127.0.0.1:8765/">
+    <title>Acoustica easy setup browser test</title>
+    <link rel="stylesheet" href="tuner/acoustica-controls.css">
+  </head>
+  <body>
+    <div id="root">Advanced engine tuner fixture</div>
+    <div id="browser-test-result" data-status="running">Running browser flow…</div>
+
+    <script>
+      window.__acousticaApiCalls = [];
+      const learnedYaml = [
+        "name: Front Door Chime",
+        "confirmation_cycles: 2",
+        "reset_timeout: 10",
+        "segments:",
+        "  - type: tone",
+        "    frequency: {min: 950, max: 1050}",
+        "    duration: {min: 0.3, max: 0.5}",
+        "  - type: silence",
+        "    duration: {min: 0.15, max: 0.3}",
+      ].join("\n");
+
+      function jsonResponse(payload, status = 200) {
+        return Promise.resolve(new Response(JSON.stringify(payload), {
+          status,
+          headers: {"Content-Type": "application/json"},
+        }));
+      }
+
+      window.fetch = (url, options = {}) => {
+        const parsed = new URL(url, document.baseURI);
+        const path = parsed.pathname.replace(/^\//, "");
+        window.__acousticaApiCalls.push({path, method: options.method || "GET"});
+
+        if (path === "api/acoustica/status") {
+          return jsonResponse({
+            ready: true,
+            state: "listening",
+            generation: 2,
+            audio: {sample_rate: 44100, device_index: 2},
+            home_assistant: {connected: true, pending_updates: 0},
+            detectors: [
+              {
+                name: "Smoke Alarm",
+                device_class: "smoke",
+                source_kind: "preset",
+                source_value: "smoke_t3",
+              },
+              {
+                name: "CO Alarm",
+                device_class: "carbon_monoxide",
+                source_kind: "preset",
+                source_value: "co_t4",
+              },
+            ],
+            last_error: null,
+          });
+        }
+        if (path === "api/acoustica/audio/devices") {
+          return jsonResponse({
+            current_index: 2,
+            devices: [
+              {index: 2, name: "USB microphone", channels: 1, default: true, backend: "sounddevice"},
+            ],
+          });
+        }
+        if (path === "profiles") {
+          return jsonResponse({profiles: []});
+        }
+        if (path === "api/acoustica/audio/select") {
+          return jsonResponse({reloaded: true, state: "listening"});
+        }
+        if (path === "api/acoustica/setup/microphone-check") {
+          return jsonResponse({
+            status: "good",
+            label: "Microphone sounds good",
+            message: "The microphone level is suitable for teaching and testing.",
+            meter: 58,
+            sample_rate: 44100,
+            device_index: 2,
+          });
+        }
+        if (path === "api/acoustica/setup/learn") {
+          return jsonResponse({
+            base_profile_yaml: learnedYaml,
+            profile_yaml: learnedYaml,
+            tolerance: "balanced",
+            microphone: {status: "good", meter: 61},
+            summary: {
+              name: "Front Door Chime",
+              tones_per_pattern: 1,
+              pattern_steps: 2,
+              pattern_seconds: {min: 0.45, max: 0.8},
+              confirmation_repeats: 2,
+              main_frequencies_hz: [1000],
+            },
+          });
+        }
+        if (path === "api/acoustica/setup/tune") {
+          return jsonResponse({
+            profile_yaml: learnedYaml,
+            tolerance: "balanced",
+            summary: {
+              name: "Front Door Chime",
+              tones_per_pattern: 1,
+              pattern_steps: 2,
+              pattern_seconds: {min: 0.45, max: 0.8},
+              confirmation_repeats: 2,
+              main_frequencies_hz: [1000],
+            },
+          });
+        }
+        if (path === "api/acoustica/setup/test") {
+          return jsonResponse({
+            detected: true,
+            detection_count: 1,
+            tone_event_count: 3,
+            microphone: {status: "good", meter: 60},
+            guidance: {
+              code: "matched",
+              title: "Acoustica recognized it",
+              message: "This detector is ready to save and start listening.",
+            },
+            details: {},
+          });
+        }
+        if (path === "api/acoustica/setup/save-and-enable") {
+          return jsonResponse({
+            saved: true,
+            profile_id: "front_door_chime",
+            detector_name: "Front Door Chime",
+            runtime: {reloaded: true},
+          });
+        }
+        return jsonResponse({detail: `Unhandled fixture endpoint: ${path}`}, 404);
+      };
+    </script>
+    <script src="tuner/acoustica-controls.js"></script>
+    <script src="tests/browser/easy_setup_harness.js"></script>
+  </body>
+</html>

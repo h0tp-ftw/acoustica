@@ -54,11 +54,50 @@ jobs:
         with:
           path: ./acoustica
 
+  browser:
+    name: Beginner browser flow
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.0
+
+      - name: Run the five-step wizard in headless Chrome
+        shell: bash
+        run: |
+          cd acoustica
+          python3 -m http.server 8765 > /tmp/acoustica-browser-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "${server_pid}" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8765/tests/browser/easy_setup_harness.html > /dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          google-chrome \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --virtual-time-budget=10000 \
+            --dump-dom \
+            http://127.0.0.1:8765/tests/browser/easy_setup_harness.html \
+            > /tmp/acoustica-browser-dom.html
+
+          if ! grep -Fq 'data-status="passed"' /tmp/acoustica-browser-dom.html; then
+            cat /tmp/acoustica-browser-dom.html
+            cat /tmp/acoustica-browser-server.log
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.arch }} image
     needs:
       - validate
       - addon-lint
+      - browser
     strategy:
       fail-fast: false
       matrix:

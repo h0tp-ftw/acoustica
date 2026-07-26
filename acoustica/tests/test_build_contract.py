@@ -73,3 +73,19 @@ def test_ci_builds_validated_64_bit_architectures() -> None:
 
     assert {item["arch"] for item in include} == {"amd64", "aarch64"}
     assert all(item["build_from"].startswith("ghcr.io/home-assistant/") for item in include)
+    assert "browser" in workflow["jobs"]["build"]["needs"]
+
+
+def test_ci_runs_the_real_beginner_browser_flow() -> None:
+    workflow = yaml.safe_load(
+        (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    browser = workflow["jobs"]["browser"]
+    script = browser["steps"][1]["run"]
+
+    assert browser["name"] == "Beginner browser flow"
+    assert "google-chrome" in script
+    assert "easy_setup_harness.html" in script
+    assert 'data-status="passed"' in script

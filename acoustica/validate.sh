@@ -21,6 +21,8 @@ for path in \
     detector/integration_client.py \
     detector/tuner_server.py \
     tuner/acoustica-controls.js \
+    tests/browser/easy_setup_harness.html \
+    tests/browser/easy_setup_harness.js \
     custom_components/acoustica/manifest.json; do
     [[ -e "$path" ]] || fail "Missing required file: $path"
 done
@@ -71,6 +73,7 @@ json.loads(Path("custom_components/acoustica/manifest.json").read_text(encoding=
 
 if command -v node >/dev/null 2>&1; then
     node --check tuner/acoustica-controls.js
+    node --check tests/browser/easy_setup_harness.js
 fi
 
 if [[ "${RUN_DOCKER_BUILD:-0}" == "1" ]]; then
