@@ -159,6 +159,8 @@ class IntegrationClient:
         profile_id: str,
         device_class: str,
         active: bool,
+        *,
+        removed: bool = False,
     ) -> bool:
         """Queue the newest state for one profile and return immediately."""
 
@@ -171,7 +173,8 @@ class IntegrationClient:
             "detector_id": self.detector_id,
             "profile_id": profile_id,
             "device_class": device_class,
-            "active": bool(active),
+            "active": bool(active) if not removed else False,
+            "removed": bool(removed),
             "updated_at": self._clock().isoformat(),
             "source_version": __version__,
         }

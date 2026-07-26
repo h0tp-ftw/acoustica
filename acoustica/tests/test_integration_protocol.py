@@ -48,6 +48,7 @@ def test_state_protocol_rejects_unrelated_or_malformed_events() -> None:
         "profile_id": "Smoke Alarm",
         "device_class": "smoke",
         "active": True,
+        "removed": False,
         "updated_at": "2026-07-25T12:00:00+00:00",
         "source_version": "10.4.0",
     }
@@ -55,13 +56,45 @@ def test_state_protocol_rejects_unrelated_or_malformed_events() -> None:
         "profile_id": "Smoke Alarm",
         "device_class": "smoke",
         "active": True,
+        "removed": False,
         "updated_at": "2026-07-25T12:00:00+00:00",
         "source_version": "10.4.0",
     }
     assert parse_state_payload({**valid, "detector_id": "other"}) is None
     assert parse_state_payload({**valid, "protocol_version": 999}) is None
     assert parse_state_payload({**valid, "active": "on"}) is None
+    assert parse_state_payload({**valid, "removed": "yes"}) is None
     assert parse_state_payload({**valid, "profile_id": ""}) is None
+
+
+def test_runtime_tombstone_is_immediately_unavailable_and_revivable() -> None:
+    runtime = DetectorRuntime("Washer", "running")
+    runtime.apply(
+        {
+            "device_class": "running",
+            "active": True,
+            "removed": True,
+            "updated_at": "2026-07-25T12:00:00+00:00",
+            "source_version": "10.4.0",
+        },
+        last_seen="2026-07-25T12:00:01+00:00",
+    )
+    assert runtime.removed is True
+    assert runtime.available is False
+    assert runtime.active is False
+
+    runtime.apply(
+        {
+            "device_class": "running",
+            "active": False,
+            "removed": False,
+            "updated_at": "2026-07-25T12:01:00+00:00",
+            "source_version": "10.4.0",
+        },
+        last_seen="2026-07-25T12:01:01+00:00",
+    )
+    assert runtime.removed is False
+    assert runtime.available is True
 
 
 def test_runtime_availability_expires_without_changing_alarm_state() -> None:

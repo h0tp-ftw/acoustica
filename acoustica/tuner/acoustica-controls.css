@@ -196,7 +196,12 @@
 .acoustica-detector-row {
   align-items: flex-start;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+.acoustica-detector-row button {
+  align-self: flex-end;
+  margin-top: 3px;
 }
 
 .acoustica-profile-list > p,

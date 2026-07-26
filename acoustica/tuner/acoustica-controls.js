@@ -172,7 +172,12 @@
       name.textContent = detector.name || "Unnamed detector";
       const detail = document.createElement("span");
       detail.textContent = `${detector.device_class || "sound"} · ${detector.source_kind || "unknown"}`;
-      row.append(name, detail);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = detectors.length === 1 ? "Keep one detector" : "Disable";
+      button.disabled = detectors.length === 1;
+      button.addEventListener("click", () => disableDetector(detector, button));
+      row.append(name, detail, button);
       elements.detectorList.appendChild(row);
     }
   }
@@ -209,6 +214,25 @@
       button.addEventListener("click", () => activateProfile(profile, button));
       row.append(name, button);
       elements.profileList.appendChild(row);
+    }
+  }
+
+  async function disableDetector(detector, button) {
+    button.disabled = true;
+    setFeedback(`Disabling ${detector.name || "detector"}…`);
+    try {
+      await fetchJson("api/acoustica/detectors/disable", {
+        method: "POST",
+        body: JSON.stringify({
+          source_kind: detector.source_kind,
+          source_value: detector.source_value,
+        }),
+      });
+      setFeedback(`${detector.name || "Detector"} is disabled. Its Home Assistant entity is now unavailable.`, "good");
+      await Promise.all([refreshStatus(), refreshProfiles()]);
+    } catch (error) {
+      setFeedback(error.message, "bad");
+      button.disabled = false;
     }
   }
 

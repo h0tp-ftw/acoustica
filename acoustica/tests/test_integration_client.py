@@ -86,10 +86,22 @@ def test_state_queue_is_latest_only_and_non_blocking() -> None:
         "profile_id": "Smoke Alarm",
         "device_class": "smoke",
         "active": False,
+        "removed": False,
         "updated_at": "2026-07-25T12:00:00+00:00",
         "source_version": __version__,
     }
     assert client.pending_count == 0
+
+
+def test_removed_state_is_published_as_a_tombstone() -> None:
+    opener = FakeUrlOpen()
+    client = _client(opener)
+
+    assert client.update_state("Washer", "running", True, removed=True) is True
+    assert client._publish_pending_once() is True
+    payload = json.loads(opener.requests[-1][0].data)
+    assert payload["active"] is False
+    assert payload["removed"] is True
 
 
 def test_failed_state_is_retained_for_retry() -> None:

@@ -86,6 +86,32 @@ def test_inactive_profile_deletes_from_addon_storage(monkeypatch, tmp_path: Path
     assert not profile.exists()
 
 
+def test_disable_detector_forwards_source_identity(monkeypatch) -> None:
+    calls = []
+
+    def fake_runtime_request(method, path, payload=None):
+        calls.append((method, path, payload))
+        return {"disabled": True}
+
+    monkeypatch.setattr(tuner_server, "_runtime_request", fake_runtime_request)
+
+    result = tuner_server.disable_detector(
+        tuner_server.DisableRequest(
+            source_kind="profile",
+            source_value="hallway.yaml",
+        )
+    )
+
+    assert result == {"disabled": True}
+    assert calls == [
+        (
+            "POST",
+            "/disable",
+            {"source_kind": "profile", "source_value": "hallway.yaml"},
+        )
+    ]
+
+
 def test_audio_devices_include_current_runtime_selection(monkeypatch) -> None:
     monkeypatch.setattr(
         tuner_server,
@@ -124,4 +150,5 @@ def test_custom_routes_precede_engine_mount() -> None:
     paths = [getattr(route, "path", None) for route in tuner_server.app.routes]
     mount_index = paths.index("") if "" in paths else paths.index("/")
     assert paths.index("/api/acoustica/status") < mount_index
+    assert paths.index("/api/acoustica/detectors/disable") < mount_index
     assert paths.index("/") < mount_index or paths.index("/") == mount_index

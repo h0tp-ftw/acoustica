@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 StatusCallback = Callable[[], dict[str, object]]
 ActivateCallback = Callable[[str, str], dict[str, object]]
+DisableCallback = Callable[[str, str], dict[str, object]]
 AudioCallback = Callable[[int | None], dict[str, object]]
 
 
@@ -26,6 +27,7 @@ class ControlServer:
         *,
         status: StatusCallback,
         activate_profile: ActivateCallback,
+        disable_detector: DisableCallback,
         select_audio_device: AudioCallback,
         host: str = "127.0.0.1",
         port: int = 8100,
@@ -34,6 +36,7 @@ class ControlServer:
         self.port = port
         self._status = status
         self._activate_profile = activate_profile
+        self._disable_detector = disable_detector
         self._select_audio_device = select_audio_device
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -44,6 +47,7 @@ class ControlServer:
         handler = _handler_factory(
             self._status,
             self._activate_profile,
+            self._disable_detector,
             self._select_audio_device,
         )
         try:
@@ -75,6 +79,7 @@ class ControlServer:
 def _handler_factory(
     status: StatusCallback,
     activate_profile: ActivateCallback,
+    disable_detector: DisableCallback,
     select_audio_device: AudioCallback,
 ):
     class Handler(BaseHTTPRequestHandler):
@@ -98,6 +103,15 @@ def _handler_factory(
                     if not isinstance(device_class, str) or not device_class.strip():
                         raise ValueError("device_class is required")
                     self._json(activate_profile(profile_id, device_class))
+                    return
+                if path == "/disable":
+                    source_kind = body.get("source_kind")
+                    source_value = body.get("source_value")
+                    if not isinstance(source_kind, str) or not source_kind.strip():
+                        raise ValueError("source_kind is required")
+                    if not isinstance(source_value, str) or not source_value.strip():
+                        raise ValueError("source_value is required")
+                    self._json(disable_detector(source_kind, source_value))
                     return
                 if path == "/audio/select":
                     raw_index = body.get("device_index")

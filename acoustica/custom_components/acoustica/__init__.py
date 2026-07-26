@@ -72,14 +72,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         runtime.apply(payload, last_seen=event.time_fired.isoformat())
         _cancel_timer(profile_id)
-        store["stale_timers"][profile_id] = async_call_later(
-            hass,
-            STATE_STALE_AFTER,
-            lambda now, pid=profile_id: _mark_stale(pid, now),
-        )
+        if not runtime.removed:
+            store["stale_timers"][profile_id] = async_call_later(
+                hass,
+                STATE_STALE_AFTER,
+                lambda now, pid=profile_id: _mark_stale(pid, now),
+            )
 
         entity = store["entities"].get(profile_id)
         if entity is None:
+            if runtime.removed:
+                return
             add_entities = store["add_entities"]
             if add_entities is None:
                 return

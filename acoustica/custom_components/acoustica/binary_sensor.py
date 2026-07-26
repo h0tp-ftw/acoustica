@@ -85,4 +85,5 @@ class AcousticaBinarySensor(BinarySensorEntity):
             "last_update": self._runtime.updated_at,
             "last_seen": self._runtime.last_seen,
             "source_version": self._runtime.source_version,
+            "removed": self._runtime.removed,
         }

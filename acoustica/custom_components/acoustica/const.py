@@ -46,6 +46,7 @@ def parse_state_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     profile_id = data.get("profile_id")
     device_class = data.get("device_class") or DEFAULT_DEVICE_CLASS
     active = data.get("active")
+    removed = data.get("removed", False)
     updated_at = data.get("updated_at")
     source_version = data.get("source_version")
 
@@ -54,6 +55,8 @@ def parse_state_payload(data: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(device_class, str) or not device_class.strip():
         return None
     if not isinstance(active, bool):
+        return None
+    if not isinstance(removed, bool):
         return None
     if not isinstance(updated_at, str) or not updated_at:
         return None
@@ -64,6 +67,7 @@ def parse_state_payload(data: dict[str, Any]) -> dict[str, Any] | None:
         "profile_id": profile_id.strip(),
         "device_class": device_class.strip(),
         "active": active,
+        "removed": removed,
         "updated_at": updated_at,
         "source_version": source_version,
     }

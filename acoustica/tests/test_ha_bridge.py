@@ -9,7 +9,7 @@ class FakeClient:
         self.started = False
         self.discovered = False
         self.disconnected = False
-        self.updates: list[tuple[str, str, bool]] = []
+        self.updates: list[tuple[str, str, bool, bool]] = []
         self.options = None
 
     def connect(self) -> bool:
@@ -23,8 +23,15 @@ class FakeClient:
         self.discovered = True
         return True
 
-    def update_state(self, name: str, device_class: str, state: bool) -> bool:
-        self.updates.append((name, device_class, state))
+    def update_state(
+        self,
+        name: str,
+        device_class: str,
+        state: bool,
+        *,
+        removed: bool = False,
+    ) -> bool:
+        self.updates.append((name, device_class, state, removed))
         return True
 
     def status(self) -> dict[str, object]:
@@ -73,16 +80,16 @@ def test_setup_and_detection_never_call_http_directly() -> None:
     assert bridge.setup() is True
     assert client.started is True
     assert client.discovered is True
-    assert client.updates == [("Smoke Alarm", "smoke", False)]
+    assert client.updates == [("Smoke Alarm", "smoke", False, False)]
 
     bridge.on_detection("Smoke Alarm")
-    assert client.updates[-1] == ("Smoke Alarm", "smoke", True)
+    assert client.updates[-1] == ("Smoke Alarm", "smoke", True, False)
     timer = FakeTimer.instances[-1]
     assert timer.interval == 4
     assert timer.started is True
 
     timer.fire()
-    assert client.updates[-1] == ("Smoke Alarm", "smoke", False)
+    assert client.updates[-1] == ("Smoke Alarm", "smoke", False, False)
 
 
 def test_repeated_detection_rearms_one_clear_timer() -> None:
@@ -102,7 +109,7 @@ def test_repeated_detection_rearms_one_clear_timer() -> None:
 
     assert first.cancelled is True
     assert second.started is True
-    assert client.updates.count(("Washer", "running", True)) == 1
+    assert client.updates.count(("Washer", "running", True, False)) == 1
 
 
 def test_reconfigure_and_status_use_same_publisher() -> None:
@@ -112,8 +119,8 @@ def test_reconfigure_and_status_use_same_publisher() -> None:
 
     bridge.reconfigure({"CO": "carbon_monoxide"})
     assert client.updates[-2:] == [
-        ("Smoke", "smoke", False),
-        ("CO", "carbon_monoxide", False),
+        ("Smoke", "smoke", False, True),
+        ("CO", "carbon_monoxide", False, False),
     ]
     assert bridge.status()["detectors"] == [
         {"name": "CO", "device_class": "carbon_monoxide"}

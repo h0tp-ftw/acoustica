@@ -27,6 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger("acoustica")
 
 _SAFE_PROFILE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_ALLOWED_SOURCE_KINDS = {"preset", "profile", "learn"}
 _ALLOWED_DEVICE_CLASSES = {
     "smoke",
     "carbon_monoxide",
@@ -127,6 +128,7 @@ class DetectorApp:
         self.control_server = self._control_server_factory(
             status=self.status,
             activate_profile=self.activate_profile,
+            disable_detector=self.disable_detector,
             select_audio_device=self.select_audio_device,
         )
         if not self.control_server.start():
@@ -436,6 +438,41 @@ class DetectorApp:
             **self.request_reconfigure(options),
         }
 
+    def disable_detector(
+        self,
+        source_kind: str,
+        source_value: str,
+    ) -> dict[str, object]:
+        """Disable one configured source and hot-reload the remaining detectors."""
+
+        if source_kind not in _ALLOWED_SOURCE_KINDS:
+            raise ValueError("Unsupported detector source")
+        source_value = source_value.strip()
+        if not source_value:
+            raise ValueError("Detector source is required")
+
+        options = self._complete_options()
+        raw_detectors = options.get("detectors")
+        detectors = [
+            dict(item)
+            for item in raw_detectors
+            if isinstance(item, dict)
+        ] if isinstance(raw_detectors, list) else []
+        remaining = [
+            item
+            for item in detectors
+            if str(item.get(source_kind, "")) != source_value
+        ]
+        if len(remaining) == len(detectors):
+            raise ValueError("The detector source is no longer configured")
+        options["detectors"] = remaining
+        return {
+            "disabled": True,
+            "source_kind": source_kind,
+            "source_value": source_value,
+            **self.request_reconfigure(options),
+        }
+
     def select_audio_device(self, device_index: int | None) -> dict[str, object]:
         """Validate and hot-reload the selected engine input device."""
 
@@ -455,7 +492,16 @@ class DetectorApp:
 
     def _complete_options(self) -> dict[str, object]:
         current = dict(self.config.options if self.config is not None else read_options())
-        current.setdefault("detectors", [])
+        raw_detectors = current.get("detectors")
+        if not isinstance(raw_detectors, list) or not raw_detectors:
+            current["detectors"] = [
+                {
+                    "name": detector.profile.name,
+                    detector.source_kind: detector.source_value,
+                    "device_class": detector.device_class,
+                }
+                for detector in (self.config.detectors if self.config is not None else [])
+            ]
         current.setdefault("sample_rate", 44100)
         current.setdefault("device_index", -1)
         current.setdefault("hold_seconds", 30)

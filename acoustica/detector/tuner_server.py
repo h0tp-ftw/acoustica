@@ -33,6 +33,11 @@ class AudioSelectionRequest(BaseModel):
     device_index: int | None = None
 
 
+class DisableRequest(BaseModel):
+    source_kind: str
+    source_value: str
+
+
 def _profiles_dir() -> Path:
     path = Path(os.getenv("ACOUSTIC_PROFILES_DIR", "/data/profiles"))
     path.mkdir(parents=True, exist_ok=True)
@@ -119,6 +124,20 @@ def audio_devices() -> dict[str, object]:
         "current_index": audio.get("device_index"),
         "devices": devices,
     }
+
+
+@app.post("/api/acoustica/detectors/disable")
+def disable_detector(body: DisableRequest) -> dict[str, Any]:
+    """Disable one live detector source without restarting the add-on."""
+
+    return _runtime_request(
+        "POST",
+        "/disable",
+        {
+            "source_kind": body.source_kind,
+            "source_value": body.source_value,
+        },
+    )
 
 
 @app.post("/api/acoustica/audio/select")

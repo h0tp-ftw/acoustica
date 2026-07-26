@@ -20,6 +20,7 @@ async def async_get_config_entry_diagnostics(
                 "device_class": runtime.device_class,
                 "active": runtime.active,
                 "available": runtime.available,
+                "removed": runtime.removed,
                 "updated_at": runtime.updated_at,
                 "last_seen": runtime.last_seen,
                 "source_version": runtime.source_version,

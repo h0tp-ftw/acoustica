@@ -63,7 +63,12 @@ class HABridge:
             self.device_classes = next_classes
             self._states = {name: False for name in next_classes}
         for name in removed:
-            self._client.update_state(name, previous_classes[name], False)
+            self._client.update_state(
+                name,
+                previous_classes[name],
+                False,
+                removed=True,
+            )
         for name, device_class in next_classes.items():
             self._client.update_state(name, device_class, False)
 

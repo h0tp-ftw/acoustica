@@ -13,14 +13,16 @@ class DetectorRuntime:
     device_class: str
     active: bool = False
     available: bool = False
+    removed: bool = False
     updated_at: str | None = None
     source_version: str | None = None
     last_seen: str | None = None
 
     def apply(self, payload: dict[str, object], *, last_seen: str) -> None:
         self.device_class = str(payload["device_class"])
-        self.active = bool(payload["active"])
-        self.available = True
+        self.removed = bool(payload.get("removed", False))
+        self.active = bool(payload["active"]) if not self.removed else False
+        self.available = not self.removed
         self.updated_at = str(payload["updated_at"])
         self.source_version = str(payload["source_version"])
         self.last_seen = last_seen

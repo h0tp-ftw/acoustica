@@ -201,6 +201,36 @@ def test_saved_profile_and_audio_device_hot_reload(monkeypatch, tmp_path) -> Non
     assert FakeBridge.instances[0].shutdown_called is True
 
 
+def test_disable_detector_removes_live_profile_source(monkeypatch, tmp_path) -> None:
+    app = _app(monkeypatch, tmp_path)
+    profile_path = tmp_path / "profiles" / "hallway.yaml"
+    profile_path.write_text(
+        "name: Hallway Alarm\n"
+        "confirmation_cycles: 1\n"
+        "segments:\n"
+        "  - type: tone\n"
+        "    frequency: {min: 2900, max: 3300}\n"
+        "    duration: {min: 0.3, max: 0.7}\n",
+        encoding="utf-8",
+    )
+    thread = _start_runtime(app)
+    app.activate_profile("hallway", "safety")
+
+    result = app.disable_detector("profile", "hallway.yaml")
+
+    assert result["disabled"] is True
+    assert result["generation"] == 2
+    assert [item.profile.name for item in app.config.detectors] == ["Smoke Alarm"]
+    assert FakeBridge.instances[0].persisted["detectors"] == [
+        {
+            "name": "Smoke Alarm",
+            "preset": "smoke_t3",
+            "device_class": "smoke",
+        }
+    ]
+    _stop_runtime(app, thread)
+
+
 def test_failed_option_persistence_keeps_current_generation(monkeypatch, tmp_path) -> None:
     app = _app(monkeypatch, tmp_path)
     thread = _start_runtime(app)
@@ -259,6 +289,7 @@ def test_candidate_start_failure_rolls_back_options_and_engine(monkeypatch, tmp_
 
 def test_control_server_exposes_only_loopback_runtime_actions() -> None:
     activated = []
+    disabled = []
     selected = []
     server = ControlServer(
         status=lambda: {"state": "listening"},
@@ -266,6 +297,10 @@ def test_control_server_exposes_only_loopback_runtime_actions() -> None:
             (profile, device_class)
         )
         or {"reloaded": True},
+        disable_detector=lambda source_kind, source_value: disabled.append(
+            (source_kind, source_value)
+        )
+        or {"disabled": True},
         select_audio_device=lambda index: selected.append(index) or {"reloaded": True},
         port=0,
     )
@@ -284,6 +319,18 @@ def test_control_server_exposes_only_loopback_runtime_actions() -> None:
     with urllib.request.urlopen(request, timeout=2) as response:
         assert json.loads(response.read()) == {"reloaded": True}
     assert activated == [("hallway", "safety")]
+
+    request = urllib.request.Request(
+        f"{base}/disable",
+        data=json.dumps(
+            {"source_kind": "profile", "source_value": "hallway.yaml"}
+        ).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=2) as response:
+        assert json.loads(response.read()) == {"disabled": True}
+    assert disabled == [("profile", "hallway.yaml")]
 
     request = urllib.request.Request(
         f"{base}/audio/select",
