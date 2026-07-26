@@ -14,5 +14,5 @@ pycparser==3.0
 PyYAML==6.0.3
 sounddevice==0.5.5
 starlette==0.50.0
-typing-extensions==4.15.0
+typing-extensions==4.16.0
 typing-inspection==0.4.2
