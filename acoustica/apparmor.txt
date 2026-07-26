@@ -44,8 +44,8 @@ profile acoustica flags=(attach_disconnected,mediate_deleted) {
   network inet stream,
   network inet6 stream,
 
-  # Config directory access (for auto-installing integration)
-  /config/** rw,
+  # Home Assistant configuration mount (integration install + legacy migration)
+  /homeassistant/ rw,
   /homeassistant/** rw,
 
   # System libraries

@@ -43,6 +43,25 @@ def test_docker_and_ci_use_the_same_constraints() -> None:
     )
 
 
+def test_manifest_uses_current_home_assistant_app_contract() -> None:
+    config = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    build = yaml.safe_load((ROOT / "build.yaml").read_text(encoding="utf-8"))
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    startup = (ROOT / "run.sh").read_text(encoding="utf-8")
+    apparmor = (ROOT / "apparmor.txt").read_text(encoding="utf-8")
+
+    assert config["arch"] == ["aarch64", "amd64"]
+    assert set(build["build_from"]) == {"aarch64", "amd64"}
+    assert "startup" not in config
+    assert "boot" not in config
+    assert "ingress_port" not in config
+    assert config["map"] == ["homeassistant_config:rw"]
+    assert 'io.hass.arch="aarch64|amd64"' in dockerfile
+    assert "/homeassistant/custom_components/acoustica" in startup
+    assert "/config/custom_components" not in startup
+    assert "/config/**" not in apparmor
+
+
 def test_ci_builds_validated_64_bit_architectures() -> None:
     workflow = yaml.safe_load(
         (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(

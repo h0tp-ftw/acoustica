@@ -56,6 +56,6 @@ LABEL \
     io.hass.description="Listen on a microphone and detect alarms/beeps as Home Assistant binary sensors" \
     io.hass.version="10.4.0" \
     io.hass.type="addon" \
-    io.hass.arch="aarch64|amd64|armhf|armv7"
+    io.hass.arch="aarch64|amd64"
 
 ENTRYPOINT ["/bin/bash", "/app/run.sh"]

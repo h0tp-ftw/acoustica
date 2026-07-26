@@ -1,7 +1,7 @@
 #!/bin/bash
 # Acoustica add-on startup.
 # Sets up audio (ALSA -> PulseAudio), installs the companion custom integration
-# into /config, then runs the detector. All detection options are read from
+# through the Home Assistant config mount, then runs the detector. All detection options are read from
 # /data/options.json by the Python app itself.
 
 log_info()  { echo "[INFO]  $(date +'%H:%M:%S') $1"; }
@@ -16,15 +16,15 @@ DEBUG_MODE="$(jq -r '.debug // false' "$OPTIONS_JSON" 2>/dev/null)"
 # Gives Home Assistant the binary_sensor entities. Requires one HA Core restart
 # after the first install before the integration can be added.
 INTEGRATION_SRC="/app/custom_components/acoustica"
-INTEGRATION_DST="/config/custom_components/acoustica"
+INTEGRATION_DST="/homeassistant/custom_components/acoustica"
 if [ -d "$INTEGRATION_SRC" ]; then
-    mkdir -p /config/custom_components
-    if cp -r "$INTEGRATION_SRC" "/config/custom_components/" 2>/dev/null; then
+    mkdir -p /homeassistant/custom_components
+    if cp -r "$INTEGRATION_SRC" "/homeassistant/custom_components/" 2>/dev/null; then
         log_info "Custom integration installed/updated at $INTEGRATION_DST"
         log_info "If this is the first install, restart Home Assistant Core once, then add"
         log_info "the 'Acoustica' integration under Settings -> Devices & Services."
     else
-        log_warn "Could not copy the custom integration into /config/custom_components"
+        log_warn "Could not copy the custom integration into the Home Assistant config directory"
     fi
 fi
 
@@ -71,7 +71,7 @@ fi
 # Wrap the pinned engine tuner with Acoustica's runtime health, microphone, and
 # hot-profile controls. Saved canonical YAML stays in add-on-owned /data.
 TUNER_PROFILES_DIR="/data/profiles"
-LEGACY_PROFILES_DIR="/config/acoustica/profiles"
+LEGACY_PROFILES_DIR="/homeassistant/acoustica/profiles"
 mkdir -p "$TUNER_PROFILES_DIR"
 if [ -d "$LEGACY_PROFILES_DIR" ]; then
     for profile in "$LEGACY_PROFILES_DIR"/*.yaml; do

@@ -19,6 +19,7 @@
 - The previous working engine generation is automatically restored when a newly selected audio generation fails during startup.
 - The tuner server is supervised and restarts after an unexpected exit.
 - Startup reports microphone mute and volume state without changing host-wide gain settings.
+- The add-on uses the current `homeassistant_config` mount and supports amd64/aarch64 only; deprecated armv7/armhf declarations were removed.
 
 ### Fixed
 

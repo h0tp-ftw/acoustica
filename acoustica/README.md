@@ -156,7 +156,7 @@ Local tests cover configuration sources, real synthetic alarm matching, non-bloc
 
 The maintainer has reported successful manual operation on a real Home Assistant OS installation. Exact host and microphone details were not captured in the repository, so future release sessions should record them using [docs/HAOS_VALIDATION.md](docs/HAOS_VALIDATION.md).
 
-CI builds amd64 and aarch64 images. The declared armv7 and armhf targets remain available for local Home Assistant builds but should be treated as less proven until equivalent CI or hardware evidence is recorded.
+Acoustica supports amd64 and aarch64. Home Assistant deprecated armv7 and armhf app targets, so 10.4 removes those declarations instead of advertising unmaintained builds.
 
 ## Project layout
 
