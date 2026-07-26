@@ -1,5 +1,5 @@
 name: "Acoustica"
-version: "10.4.0"
+version: "10.5.0"
 slug: "acoustica"
 description: "Listen on a microphone and turn alarms/beeps (smoke, CO, appliances) into Home Assistant binary sensors"
 url: "https://github.com/h0tp-ftw/acoustica"
@@ -18,6 +18,8 @@ panel_title: "Acoustica"
 map:
   # Compatibility only: install the bundled integration and migrate legacy profiles.
   - homeassistant_config:rw
+# Most users should leave these defaults alone and use the Web UI's Easy Setup.
+# The options below remain available for advanced/manual configuration and upgrades.
 # Each detector becomes one binary_sensor. Give it a source:
 #   preset:  a built-in pattern  (smoke_t3 | co_t4)
 #   profile: a canonical YAML stored in add-on-owned /data/profiles

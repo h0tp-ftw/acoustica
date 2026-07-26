@@ -10,4 +10,4 @@ All audio capture, DSP, and pattern matching live in `acoustic_engine`; this
 package only adapts it to the Home Assistant add-on environment.
 """
 
-__version__ = "10.4.0"
+__version__ = "10.5.0"

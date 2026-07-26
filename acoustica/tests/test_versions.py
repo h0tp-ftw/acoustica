@@ -29,7 +29,7 @@ def test_release_versions_match() -> None:
         str(manifest_version),
         docker_version.group(1),
         __version__,
-    } == {"10.4.0"}
+    } == {"10.5.0"}
 
 
 def test_image_packages_runtime_control_assets() -> None:

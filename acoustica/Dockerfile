@@ -54,7 +54,7 @@ COPY custom_components/ ./custom_components/
 LABEL \
     io.hass.name="Acoustica" \
     io.hass.description="Listen on a microphone and detect alarms/beeps as Home Assistant binary sensors" \
-    io.hass.version="10.4.0" \
+    io.hass.version="10.5.0" \
     io.hass.type="addon" \
     io.hass.arch="aarch64|amd64"
 
