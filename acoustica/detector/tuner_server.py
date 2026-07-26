@@ -291,12 +291,13 @@ def setup_learn_sound(body: LearnSoundRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(level["message"]))
 
     try:
-        profile = learn_profile(
+        base_profile = learn_profile(
             samples,
             sample_rate,
             name=_clean_detector_name(body.name),
-            tolerance=body.tolerance,
+            tolerance="balanced",
         )
+        profile = apply_tolerance(base_profile, body.tolerance)
     except Exception as exc:
         raise HTTPException(
             status_code=400,
@@ -304,6 +305,7 @@ def setup_learn_sound(body: LearnSoundRequest) -> dict[str, object]:
         ) from None
 
     return {
+        "base_profile_yaml": profile_to_yaml(base_profile),
         "profile_yaml": profile_to_yaml(profile),
         "summary": profile_summary(profile),
         "microphone": level,
