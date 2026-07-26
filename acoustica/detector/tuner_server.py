@@ -6,20 +6,34 @@ import argparse
 import json
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import numpy as np
 from acoustic_engine.input.listener import list_input_devices
+from acoustic_engine.profiles import validate_profile
 from acoustic_engine.tuner import validate as engine_tuner
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from detector.setup_service import (
+    apply_tolerance,
+    atomic_save_profile,
+    atomic_write_text,
+    audio_level,
+    learn_profile,
+    profile_summary,
+    profile_to_yaml,
+)
 
 CONTROL_URL = os.getenv("ACOUSTICA_CONTROL_URL", "http://127.0.0.1:8100").rstrip("/")
 ASSET_DIR = Path(__file__).parents[1] / "tuner"
 _UNSAFE_PROFILE = re.compile(r"[^A-Za-z0-9_.-]+")
+_RECORDING_LOCK = threading.Lock()
 
 app = FastAPI(title="Acoustica Tuner")
 
@@ -38,6 +52,35 @@ class DisableRequest(BaseModel):
     source_value: str
 
 
+class MicrophoneCheckRequest(BaseModel):
+    seconds: float = Field(default=2.0, ge=1.0, le=5.0)
+    device_index: int | None = None
+
+
+class LearnSoundRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    seconds: float = Field(default=12.0, ge=4.0, le=30.0)
+    tolerance: Literal["forgiving", "balanced", "precise"] = "balanced"
+    device_index: int | None = None
+
+
+class TuneProfileRequest(BaseModel):
+    profile_yaml: str = Field(min_length=1, max_length=100_000)
+    tolerance: Literal["forgiving", "balanced", "precise"]
+
+
+class TestSoundRequest(BaseModel):
+    profile_yaml: str = Field(min_length=1, max_length=100_000)
+    seconds: float = Field(default=10.0, ge=3.0, le=30.0)
+    device_index: int | None = None
+
+
+class SaveAndEnableRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    profile_yaml: str = Field(min_length=1, max_length=100_000)
+    device_class: str = Field(default="sound", min_length=1, max_length=40)
+
+
 def _profiles_dir() -> Path:
     path = Path(os.getenv("ACOUSTIC_PROFILES_DIR", "/data/profiles"))
     path.mkdir(parents=True, exist_ok=True)
@@ -47,6 +90,13 @@ def _profiles_dir() -> Path:
 def _safe_profile_stem(name: str) -> str:
     stem = _UNSAFE_PROFILE.sub("_", (name or "").strip()).strip("._")
     return (stem or "profile")[:100]
+
+
+def _clean_detector_name(name: str) -> str:
+    cleaned = " ".join(name.strip().split())
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Give this sound a name first.")
+    return cleaned
 
 
 def _engine_static_dir() -> Path:
@@ -92,6 +142,95 @@ def _runtime_request(
     return parsed
 
 
+def _current_audio_settings() -> tuple[int, int | None]:
+    status = _runtime_request("GET", "/status")
+    audio = status.get("audio") if isinstance(status.get("audio"), dict) else {}
+    sample_rate_value = audio.get("sample_rate")
+    device_value = audio.get("device_index")
+    sample_rate = int(sample_rate_value) if isinstance(sample_rate_value, int) else 44100
+    device_index = int(device_value) if isinstance(device_value, int) else None
+    return sample_rate, device_index
+
+
+def _record_audio(
+    seconds: float,
+    sample_rate: int,
+    device_index: int | None,
+) -> np.ndarray:
+    if not _RECORDING_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="Another microphone recording is already in progress.",
+        )
+    try:
+        try:
+            samples = engine_tuner._record_int16(seconds, sample_rate, device_index)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Microphone recording failed: {exc}",
+            ) from None
+    finally:
+        _RECORDING_LOCK.release()
+
+    if samples.size == 0:
+        raise HTTPException(
+            status_code=503,
+            detail="No audio was captured. Check the microphone and try again.",
+        )
+    return samples.astype(np.int16, copy=False)
+
+
+def _parse_profile(profile_yaml: str):
+    try:
+        profile = engine_tuner.parse_profile_from_yaml(profile_yaml)
+        validate_profile(profile)
+        return profile
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid detector pattern: {exc}",
+        ) from None
+
+
+def _test_guidance(
+    *,
+    detected: bool,
+    tone_events: int,
+    level: dict[str, object],
+) -> dict[str, str]:
+    level_status = str(level.get("status", "unknown"))
+    if level_status in {"silent", "quiet"}:
+        return {
+            "code": "microphone_quiet",
+            "title": "The test recording was too quiet",
+            "message": "Move the microphone closer, play the sound louder, and test again.",
+        }
+    if level_status == "clipping":
+        return {
+            "code": "microphone_clipping",
+            "title": "The test recording was too loud",
+            "message": "Move the microphone farther away so the sound is clear instead of distorted.",
+        }
+    if detected:
+        return {
+            "code": "matched",
+            "title": "Acoustica recognized it",
+            "message": "This detector is ready to save and start listening.",
+        }
+    if tone_events == 0:
+        return {
+            "code": "no_tones",
+            "title": "No repeating tones were found",
+            "message": "Try another teaching recording with the sound played three to five times and less background noise.",
+        }
+    return {
+        "code": "pattern_missed",
+        "title": "The sound was heard, but the pattern did not match",
+        "message": "Choose Forgiving matching, or record the teaching sample again with more repetitions.",
+    }
+
+
 @app.get("/api/acoustica/status")
 def runtime_status() -> dict[str, Any]:
     """Return the detector process health snapshot."""
@@ -123,6 +262,136 @@ def audio_devices() -> dict[str, object]:
     return {
         "current_index": audio.get("device_index"),
         "devices": devices,
+    }
+
+
+@app.post("/api/acoustica/setup/microphone-check")
+def setup_microphone_check(body: MicrophoneCheckRequest) -> dict[str, object]:
+    """Record a short sample and report a plain-language microphone level."""
+
+    sample_rate, current_device = _current_audio_settings()
+    device_index = body.device_index if body.device_index is not None else current_device
+    samples = _record_audio(body.seconds, sample_rate, device_index)
+    return {
+        "sample_rate": sample_rate,
+        "device_index": device_index,
+        **audio_level(samples),
+    }
+
+
+@app.post("/api/acoustica/setup/learn")
+def setup_learn_sound(body: LearnSoundRequest) -> dict[str, object]:
+    """Record several repetitions and learn a canonical detector profile."""
+
+    sample_rate, current_device = _current_audio_settings()
+    device_index = body.device_index if body.device_index is not None else current_device
+    samples = _record_audio(body.seconds, sample_rate, device_index)
+    level = audio_level(samples)
+    if level["status"] == "silent":
+        raise HTTPException(status_code=400, detail=str(level["message"]))
+
+    try:
+        profile = learn_profile(
+            samples,
+            sample_rate,
+            name=_clean_detector_name(body.name),
+            tolerance=body.tolerance,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not learn this sound: {exc}",
+        ) from None
+
+    return {
+        "profile_yaml": profile_to_yaml(profile),
+        "summary": profile_summary(profile),
+        "microphone": level,
+        "tolerance": body.tolerance,
+    }
+
+
+@app.post("/api/acoustica/setup/tune")
+def setup_tune_profile(body: TuneProfileRequest) -> dict[str, object]:
+    """Apply one understandable tolerance choice to a learned base profile."""
+
+    profile = _parse_profile(body.profile_yaml)
+    try:
+        tuned = apply_tolerance(profile, body.tolerance)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {
+        "profile_yaml": profile_to_yaml(tuned),
+        "summary": profile_summary(tuned),
+        "tolerance": body.tolerance,
+    }
+
+
+@app.post("/api/acoustica/setup/test")
+def setup_test_sound(body: TestSoundRequest) -> dict[str, object]:
+    """Record a fresh sample and test it through the real detector pipeline."""
+
+    profile = _parse_profile(body.profile_yaml)
+    sample_rate, current_device = _current_audio_settings()
+    device_index = body.device_index if body.device_index is not None else current_device
+    samples = _record_audio(body.seconds, sample_rate, device_index)
+    level = audio_level(samples)
+    try:
+        results = engine_tuner.run_engine_pipeline(samples, sample_rate, profile)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not test this sound: {exc}") from None
+
+    detections = results.get("detections", [])
+    tone_events = results.get("tone_events", [])
+    detected = bool(detections)
+    return {
+        "detected": detected,
+        "detection_count": len(detections),
+        "tone_event_count": len(tone_events),
+        "microphone": level,
+        "guidance": _test_guidance(
+            detected=detected,
+            tone_events=len(tone_events),
+            level=level,
+        ),
+        "details": results,
+    }
+
+
+@app.post("/api/acoustica/setup/save-and-enable")
+def setup_save_and_enable(body: SaveAndEnableRequest) -> dict[str, object]:
+    """Atomically save one learned profile and enable it in the live runtime."""
+
+    profile = _parse_profile(body.profile_yaml)
+    profile.name = _clean_detector_name(body.name)
+    validate_profile(profile)
+    profile_id = _safe_profile_stem(profile.name).lower()
+    path = _profiles_dir() / f"{profile_id}.yaml"
+    previous_text = path.read_text(encoding="utf-8") if path.is_file() else None
+    atomic_save_profile(profile, path)
+
+    try:
+        runtime = _runtime_request(
+            "POST",
+            "/activate",
+            {
+                "profile_id": profile_id,
+                "device_class": body.device_class,
+            },
+        )
+    except Exception:
+        if previous_text is None:
+            path.unlink(missing_ok=True)
+        else:
+            atomic_write_text(path, previous_text)
+        raise
+
+    return {
+        "saved": True,
+        "profile_id": profile_id,
+        "detector_name": profile.name,
+        "path": path.name,
+        "runtime": runtime,
     }
 
 
