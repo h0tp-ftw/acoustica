@@ -9,13 +9,15 @@ The add-on currently installs this directory under `/config/custom_components/ac
 The add-on publishes versioned `acoustica_state` events through the authenticated Home Assistant Core API proxy. Event payloads include:
 
 - `protocol_version`;
+- `detector_id`;
 - `profile_id`;
 - `device_class`;
 - `active`;
+- `removed`;
 - `updated_at`;
 - `source_version`.
 
-The integration validates the protocol, creates entities dynamically from valid events, and ignores unrelated or unsupported payloads. It marks a detector unavailable after its heartbeat expires and exposes non-sensitive diagnostics through Home Assistant.
+The integration validates the protocol, creates entities dynamically from valid events, and ignores unrelated or unsupported payloads. It marks a detector unavailable after its heartbeat expires, applies removal tombstones immediately when a detector is disabled, revives the same entity when it returns, and exposes non-sensitive diagnostics through Home Assistant.
 
 No MQTT broker, shared discovery file, direct entity-state write, or custom WebSocket command is used.
 

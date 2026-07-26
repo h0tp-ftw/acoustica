@@ -11,6 +11,8 @@ fail() {
 for path in \
     Dockerfile \
     config.yaml \
+    CHANGELOG.md \
+    DOCS.md \
     requirements.txt \
     constraints.txt \
     requirements-dev.txt \

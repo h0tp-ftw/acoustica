@@ -21,11 +21,12 @@ ingress_port: 8099
 panel_icon: mdi:sine-wave
 panel_title: "Acoustica"
 map:
+  # Compatibility only: install the bundled integration and migrate legacy profiles.
   - config:rw
 # Each detector becomes one binary_sensor. Give it a source:
 #   preset:  a built-in pattern  (smoke_t3 | co_t4)
-#   profile: a profile YAML under /config/acoustica/profiles/
-#   learn:   a recording (WAV) under /config/acoustica/sounds/
+#   profile: a canonical YAML stored in add-on-owned /data/profiles
+#   learn:   a WAV stored in add-on-owned /data/sounds
 #            — the add-on turns it into a profile on first run.
 # device_class controls the icon/semantics of the sensor in Home Assistant.
 options:

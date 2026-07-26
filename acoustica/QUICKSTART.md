@@ -28,7 +28,7 @@ Open the add-on **Web UI**. The Acoustica runtime panel shows:
 - the selected microphone;
 - every detector currently running.
 
-Select a different microphone in the panel when needed. Acoustica reopens the audio engine inside the running add-on; a container restart is not required.
+Select a different microphone in the panel when needed. Acoustica preflights the device before saving it, reloads the audio engine inside the running add-on, and automatically restores the previous generation when the candidate fails during startup. A container restart is not required.
 
 ## 4. Learn and enable another sound
 
@@ -41,6 +41,8 @@ Use the guided tuner in the Web UI:
 5. Select **Enable**.
 
 The complete add-on options are saved through Supervisor and the detector engine reloads in place. The corresponding Home Assistant entity receives an initial clear state automatically.
+
+To stop a detector, use **Disable** beside it in the live detector list. Its Home Assistant entity becomes unavailable immediately and can be revived by enabling the profile again.
 
 Saved profiles live in add-on-owned persistent storage at `/data/profiles`. Profiles from older installations under `/config/acoustica/profiles` are copied into the new location on startup.
 
@@ -55,5 +57,6 @@ Use the physical test control on the certified alarm and watch the matching bina
 | Acoustica integration is not listed | Start the add-on, restart Home Assistant Core once, then check Devices & services again. |
 | Audio is unavailable | Open the Web UI, select a listed microphone, and inspect the add-on log for PulseAudio sources. |
 | Home Assistant is disconnected | Detection continues locally and the latest state remains queued for automatic retry. |
-| A saved profile cannot be deleted | It is active. Keep it, or remove that detector from the add-on configuration before deleting the file. |
+| A saved profile cannot be deleted | It is active. Select **Disable** beside the live detector, then delete the profile. |
+| A detector or microphone change fails | Read the recovery reason in the runtime panel. The prior working generation should resume automatically. |
 | A new profile is not detecting | Run the tuner validation again with a clean recording containing multiple repetitions. |

@@ -62,7 +62,9 @@ Open the add-on **Web UI** through Home Assistant ingress. The existing acoustic
 - microphone enumeration and live selection;
 - the list of active detectors;
 - one-click enablement of saved canonical profiles;
-- active-profile deletion protection.
+- source-aware Disable controls for every live detector;
+- active-profile deletion protection;
+- the latest automatic recovery reason when an audio generation fails.
 
 The tuner records from the Home Assistant host microphone, not the browser microphone. Saved profiles are canonical engine YAML and are loaded directly by the production detector.
 
@@ -74,7 +76,9 @@ The tuner records from the Home Assistant host microphone, not the browser micro
 4. Choose a Home Assistant device class in the Acoustica runtime panel.
 5. Select **Enable**.
 
-Acoustica validates the complete candidate configuration, persists the complete option set through Supervisor, stops the current engine generation, and starts the new generation in the same process. Failed option persistence leaves the current runtime untouched.
+Acoustica validates the complete candidate configuration, stops the current generation, opens the candidate microphone as a preflight check, and only then persists the complete option set through Supervisor. A failed preflight or option write restarts the previous generation. If a newly committed generation still exits during its startup window, Acoustica restores the prior options and engine automatically.
+
+Use **Disable** beside a live detector before deleting its saved profile. Home Assistant receives an immediate removal tombstone and marks the existing entity unavailable; re-enabling the same detector revives it.
 
 ### Profile storage and migration
 
@@ -113,9 +117,11 @@ Example event data:
 ```json
 {
   "protocol_version": 1,
+  "detector_id": "acoustica",
   "profile_id": "Smoke Alarm",
   "device_class": "smoke",
   "active": true,
+  "removed": false,
   "updated_at": "2026-07-26T12:00:00+00:00",
   "source_version": "10.4.0"
 }
@@ -125,7 +131,7 @@ The integration rejects unrelated or unsupported payloads, creates entities dyna
 
 ## Runtime controls
 
-The detector process exposes a loopback-only control API on `127.0.0.1:8100`. The ingress wrapper is the only intended client. It supports read-only health, profile activation, and microphone selection. The control service is not exposed as an add-on port.
+The detector process exposes a loopback-only control API on `127.0.0.1:8100`. The ingress wrapper is the only intended client. It supports read-only health, profile activation, detector disable, and microphone selection. The control service is not exposed as an add-on port.
 
 ## Development
 
@@ -142,19 +148,15 @@ Or run the complete local gate:
 bash validate.sh
 ```
 
-The validation script checks Python compilation, YAML/JSON parsing, JavaScript syntax when Node.js is available, the pytest suite, release-version consistency, and the container build when Docker is available.
+The validation script checks Python compilation, YAML/JSON parsing, JavaScript syntax when Node.js is available, the pytest suite, dependency locks, and release-version consistency. Dedicated GitHub Actions jobs run Home Assistant app linting and build amd64 and aarch64 images.
 
-Local tests cover configuration sources, real synthetic alarm matching, non-blocking state transport, retries and heartbeat snapshots, clear-timer rearming, Supervisor discovery, protocol validation, runtime reload rollback, microphone changes, ingress injection, profile deletion protection, and version consistency.
+Local tests cover configuration sources, real synthetic alarm matching, non-blocking state transport, retries and heartbeat snapshots, clear-timer rearming, Supervisor discovery, protocol validation, transactional runtime rollback, detector tombstones, microphone changes, ingress injection, profile deletion protection, startup supervision, dependency locking, and version consistency.
 
-## Known release verification work
+## Release verification
 
-The source tree is locally validated, but the following still require an appliance-capable environment:
+The maintainer has reported successful manual operation on a real Home Assistant OS installation. Exact host and microphone details were not captured in the repository, so future release sessions should record them using [docs/HAOS_VALIDATION.md](docs/HAOS_VALIDATION.md).
 
-- multi-architecture container builds;
-- microphone enumeration and index stability on Home Assistant OS;
-- PulseAudio capture under the shipped AppArmor profile;
-- Supervisor discovery and integration confirmation on a live Home Assistant instance;
-- repeated hot reloads while real audio capture is active.
+CI builds amd64 and aarch64 images. The declared armv7 and armhf targets remain available for local Home Assistant builds but should be treated as less proven until equivalent CI or hardware evidence is recorded.
 
 ## Project layout
 
