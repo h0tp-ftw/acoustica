@@ -36,6 +36,7 @@ def test_docker_and_ci_use_the_same_constraints() -> None:
         )
     )
 
+    assert "ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21" in dockerfile
     assert "COPY requirements.txt constraints.txt ./" in dockerfile
     assert "-c constraints.txt -r requirements.txt" in dockerfile
     assert workflow["jobs"]["validate"]["steps"][3]["run"].endswith(
