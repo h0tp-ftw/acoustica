@@ -14,6 +14,7 @@ Every pull request and push to `main` runs:
 - YAML, JSON, shell, and JavaScript checks;
 - exact dependency-lock validation;
 - Home Assistant app linting;
+- the complete five-step Easy Setup flow in headless Chrome;
 - an amd64 Home Assistant image build;
 - an aarch64 Home Assistant image build.
 
@@ -26,7 +27,13 @@ Record the following for future release candidates:
 - microphone model and selected input index;
 - fresh installation or upgrade source version;
 - add-on install and startup result;
-- ingress tuner load and host-microphone recording;
+- Easy Setup loads by default and Advanced tuning can be opened and exited;
+- microphone selection and the plain-language level check;
+- teaching recording with three to five repetitions;
+- Forgiving, Balanced, and Precise matching changes;
+- failed fresh-test guidance and a successful fresh test;
+- Save and start listening behavior;
+- Tweak or retest for an existing custom sound;
 - smoke/CO preset detection using a safe physical test control;
 - saved profile activation and disable behavior;
 - microphone hot switch and automatic rollback on an invalid device;

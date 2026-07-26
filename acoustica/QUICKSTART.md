@@ -1,6 +1,6 @@
 # Acoustica Quick Start
 
-Acoustica listens to a microphone attached to Home Assistant and exposes detected alarm or appliance patterns as binary sensors.
+Acoustica listens to a microphone attached to Home Assistant and turns repeating alarms, beeps, and short melodies into binary sensors.
 
 ## 1. Install the add-on
 
@@ -8,7 +8,7 @@ Acoustica listens to a microphone attached to Home Assistant and exposes detecte
 2. Add this repository and install **Acoustica**.
 3. Start the add-on.
 
-On first start, the add-on installs its bundled custom integration under `/config/custom_components/acoustica`.
+On first start, the add-on installs its bundled custom integration under Home Assistant's `custom_components/acoustica` directory.
 
 ## 2. Load and confirm the integration
 
@@ -16,37 +16,87 @@ Restart Home Assistant Core once after the first add-on start. Then open **Setti
 
 Home Assistant should show a discovered **Acoustica** integration. Open it and confirm the setup. When discovery is unavailable, use **Add integration → Acoustica** as a manual fallback.
 
-The default configuration creates smoke and carbon-monoxide detectors.
+The default installation immediately listens for standard smoke and carbon-monoxide alarm patterns.
 
-## 3. Check runtime health
+## 3. Open Easy Setup
 
-Open the add-on **Web UI**. The Acoustica runtime panel shows:
+Open the add-on **Web UI**. Easy Setup is the default page.
 
-- whether audio is listening;
-- Home Assistant connection and queued updates;
-- active acoustic matches and the most recent detection;
-- the selected microphone;
-- every detector currently running.
+It shows:
 
-Select a different microphone in the panel when needed. Acoustica preflights the device before saving it, reloads the audio engine inside the running add-on, and automatically restores the previous generation when the candidate fails during startup. A container restart is not required.
+- whether the microphone is listening;
+- whether Home Assistant is connected;
+- every detector currently active;
+- every saved custom sound;
+- any automatic recovery message after an audio problem.
 
-## 4. Learn and enable another sound
+Most users should leave the Home Assistant **Configuration** tab unchanged. Easy Setup handles the microphone, detector name, category, matching level, test, save, and activation.
 
-Use the guided tuner in the Web UI:
+## 4. Add your own sound
 
-1. Record the alarm or appliance using the Home Assistant host microphone.
-2. Review the generated pattern and run the engine validation step.
-3. Save the profile.
-4. Choose its Home Assistant device class in the Acoustica panel.
-5. Select **Enable**.
+Select **Add a sound detector** and follow the five steps.
 
-The complete add-on options are saved through Supervisor and the detector engine reloads in place. The corresponding Home Assistant entity receives an initial clear state automatically.
+### Step 1 — Make sure Acoustica can hear
 
-To stop a detector, use **Disable** beside it in the live detector list. Its Home Assistant entity becomes unavailable immediately and can be revived by enabling the profile again.
+Choose a microphone and select **Test this microphone**. Make a short noise near it.
 
-Saved profiles live in add-on-owned persistent storage at `/data/profiles`. Profiles from older installations under `/config/acoustica/profiles` are copied into the new location on startup.
+Acoustica reports one of these results:
 
-## Test safely
+- **Microphone sounds good** — continue;
+- **Very quiet** — move the microphone closer;
+- **Too loud** — move it farther away;
+- **No clear sound heard** — check the device and mute state.
+
+### Step 2 — Tell Home Assistant what the sound means
+
+Choose a plain-language type such as:
+
+- Smoke alarm;
+- Carbon monoxide alarm;
+- Appliance finished;
+- Doorbell or chime;
+- Water or leak alarm;
+- Other warning sound;
+- Something else.
+
+Give it the name you want to see in Home Assistant, such as **Washing machine finished** or **Front door chime**.
+
+### Step 3 — Teach Acoustica
+
+Select **Start teaching recording**, then play the sound three to five times. Leave a little quiet space between repetitions and avoid talking during the recording.
+
+After learning, choose:
+
+- **Forgiving** when timing or volume changes;
+- **Balanced** for most sounds;
+- **Precise** when the sound is very consistent and avoiding false matches matters most.
+
+You can switch between these choices freely. Each choice is rebuilt from the original learned pattern rather than from the previous setting.
+
+### Step 4 — Test it with a fresh recording
+
+Select **Start test recording** and play the sound again.
+
+This recording is separate from the teaching sample. Acoustica only allows the normal save flow after the detector recognizes this fresh test.
+
+When the test fails, the page explains whether the recording was quiet, clipped, missing clear tones, or simply did not match. You can make matching more forgiving, teach it again, or open Advanced tuning.
+
+### Step 5 — Save and start listening
+
+Review the name, Home Assistant type, matching level, and test result. Select **Save and start listening**.
+
+The profile is saved to persistent add-on storage and activated without restarting the container.
+
+## Tweak or retest later
+
+The main Easy Setup page lists saved custom sounds and active detectors.
+
+- Select **Tweak or retest** to change the matching level and make another fresh test.
+- Select **Disable** to stop a detector. Its Home Assistant entity becomes unavailable immediately and can be revived later.
+- Select **Advanced tuning** for waveforms, frequencies, timing ranges, YAML, and other expert controls.
+- Select **Easy setup** in the Advanced view to return.
+
+## Test certified alarms safely
 
 Use the physical test control on the certified alarm and watch the matching binary sensor. Acoustica supplements certified alarms; it must not replace, disable, or reduce their normal audible operation.
 
@@ -55,8 +105,9 @@ Use the physical test control on the certified alarm and watch the matching bina
 | Symptom | Action |
 | --- | --- |
 | Acoustica integration is not listed | Start the add-on, restart Home Assistant Core once, then check Devices & services again. |
-| Audio is unavailable | Open the Web UI, select a listed microphone, and inspect the add-on log for PulseAudio sources. |
+| No microphone is listed | Confirm a microphone is attached to the Home Assistant host and inspect the add-on log for PulseAudio sources. |
+| The microphone test is quiet | Move the microphone closer or choose another input. Acoustica reports host gain but does not change it automatically. |
+| The fresh test does not match | Try Forgiving matching, play more repetitions, reduce background noise, or teach the sound again. |
 | Home Assistant is disconnected | Detection continues locally and the latest state remains queued for automatic retry. |
-| A saved profile cannot be deleted | It is active. Select **Disable** beside the live detector, then delete the profile. |
-| A detector or microphone change fails | Read the recovery reason in the runtime panel. The prior working generation should resume automatically. |
-| A new profile is not detecting | Run the tuner validation again with a clean recording containing multiple repetitions. |
+| A saved profile cannot be deleted | It is active. Select **Disable** beside the detector first. |
+| A detector or microphone change fails | Read the automatic recovery message. The previous working generation should resume automatically. |

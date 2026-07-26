@@ -1,5 +1,36 @@
 # Changelog
 
+## 10.5.0
+
+### Added
+
+- A beginner-first **Easy Setup** dashboard that is now the default Web UI.
+- A five-step sound-detector wizard: microphone check, sound meaning and name, teaching recording, fresh-recording test, and save-and-start.
+- Plain-language sound choices for smoke, carbon monoxide, appliances, doorbells, water alarms, safety warnings, and other repetitive tones.
+- A microphone level check with clear quiet, good, clipping, and no-audio guidance.
+- Three understandable matching choices: Forgiving, Balanced, and Precise.
+- One-click **Tweak or retest** for saved custom sounds.
+- A real headless-Chrome CI flow that clicks through all five beginner steps before image builds run.
+
+### Changed
+
+- The full waveform, frequency, timing, and YAML tuner remains available under **Advanced tuning**, but is hidden during normal setup.
+- Saving a beginner detector now requires a successful test made from a separate recording.
+- Save and activation are one atomic **Save and start listening** action.
+- The add-on Configuration tab is documented as an advanced compatibility surface; normal setup happens in the Web UI.
+
+### Fixed
+
+- Matching-level changes are based on the original learned pattern instead of accumulating range changes.
+- Rapid matching-level changes cannot apply stale responses out of order.
+- Detector and saved-profile names are rendered as text instead of HTML.
+- Runtime automatic-recovery details remain visible in the beginner dashboard.
+
+### Validation
+
+- Local validation covers the setup API, microphone guidance, profile tuning and serialization, fresh testing, atomic save rollback, beginner UI contracts, and JavaScript syntax.
+- CI runs the beginner workflow in a real headless Chrome session before building amd64 and aarch64 images.
+
 ## 10.4.0
 
 ### Added

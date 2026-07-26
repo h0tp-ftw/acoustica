@@ -19,6 +19,7 @@ for path in \
     run.sh \
     detector/main.py \
     detector/integration_client.py \
+    detector/setup_service.py \
     detector/tuner_server.py \
     tuner/acoustica-controls.js \
     tests/browser/easy_setup_harness.html \
@@ -39,6 +40,10 @@ grep -q 'EVENT_STATE_UPDATE = "acoustica_state"' detector/integration_client.py 
     || fail "The versioned integration event changed unexpectedly"
 grep -q '/api/acoustica/detectors/disable' detector/tuner_server.py \
     || fail "Detector disable controls must remain exposed through ingress"
+grep -q '/api/acoustica/setup/save-and-enable' detector/tuner_server.py \
+    || fail "Easy Setup must keep its atomic save-and-enable endpoint"
+grep -q 'Save and start listening' tuner/acoustica-controls.js \
+    || fail "Easy Setup must remain the default beginner workflow"
 
 if grep -Eq '(^|[[:space:]])[^#[:space:]]+(>=|~=|>)' requirements.txt constraints.txt; then
     fail "Runtime dependencies must remain exactly pinned"

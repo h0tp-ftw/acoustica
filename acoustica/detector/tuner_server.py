@@ -473,7 +473,7 @@ def controls_stylesheet() -> FileResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def tuner_index(request: Request) -> HTMLResponse:
-    """Serve the engine tuner shell with the Acoustica runtime panel injected."""
+    """Serve the engine tuner shell with Easy Setup and Advanced controls injected."""
 
     index = _engine_static_dir() / "index.html"
     if not index.is_file():
