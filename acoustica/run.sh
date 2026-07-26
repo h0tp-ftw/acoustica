@@ -63,22 +63,26 @@ else
 fi
 
 # --- Tuner web UI (HA Ingress) --------------------------------------------- #
-# Serve the acoustic-engine tuner + profile API behind Ingress, in the
-# background alongside the detector. Best-effort: if it fails, detection still
-# runs. Profiles saved from the UI land in /config/.../profiles, where the
-# detector reads them.
-TUNER_PROFILES_DIR="/config/acoustica/profiles"
+# Wrap the pinned engine tuner with Acoustica's runtime health, microphone, and
+# hot-profile controls. Saved canonical YAML stays in add-on-owned /data.
+TUNER_PROFILES_DIR="/data/profiles"
+LEGACY_PROFILES_DIR="/config/acoustica/profiles"
 mkdir -p "$TUNER_PROFILES_DIR"
-# Launch via `python3 -m`, not the `acoustic-engine` console script: AppArmor
-# grants exec on /usr/bin but the interpreter must *read* a console script
-# (needs 'r'); the module form reads from site-packages, which is already
-# allowed — so this works regardless.
-if python3 -c "import acoustic_engine.tuner.validate" >/dev/null 2>&1; then
-    python3 -m acoustic_engine.tuner.validate --host 0.0.0.0 --port 8099 \
+if [ -d "$LEGACY_PROFILES_DIR" ]; then
+    for profile in "$LEGACY_PROFILES_DIR"/*.yaml; do
+        [ -e "$profile" ] || continue
+        destination="$TUNER_PROFILES_DIR/$(basename "$profile")"
+        if [ ! -e "$destination" ] && cp "$profile" "$destination" 2>/dev/null; then
+            log_info "Migrated saved profile $(basename "$profile") into add-on storage"
+        fi
+    done
+fi
+if python3 -c "import acoustic_engine.tuner.validate; import detector.tuner_server" >/dev/null 2>&1; then
+    python3 -m detector.tuner_server --host 0.0.0.0 --port 8099 \
         --profiles-dir "$TUNER_PROFILES_DIR" &
-    log_info "Tuner UI on ingress port 8099 — open the add-on's sidebar panel."
+    log_info "Tuner UI and runtime controls are available on ingress port 8099."
 else
-    log_warn "Tuner server unavailable (engine + fastapi/uvicorn not importable)."
+    log_warn "Tuner server unavailable (engine + FastAPI dependencies could not import)."
 fi
 
 # --- Run the detector ------------------------------------------------------ #

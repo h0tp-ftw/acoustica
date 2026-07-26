@@ -21,6 +21,7 @@ profile acoustica flags=(attach_disconnected,mediate_deleted) {
   /tmp/** rwk,
 
   # Add-on data
+  /data/ rw,
   /data/** rw,
 
   # Python and application

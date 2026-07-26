@@ -40,6 +40,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir --prefer-binar
 
 # Application code
 COPY detector/ ./detector/
+COPY tuner/ ./tuner/
 COPY run.sh .
 RUN chmod a+x ./run.sh
 

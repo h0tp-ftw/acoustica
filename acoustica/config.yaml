@@ -13,6 +13,8 @@ boot: auto
 init: false
 audio: true
 homeassistant_api: true
+discovery:
+  - acoustica
 # Web UI (the acoustic-engine tuner) exposed via HA Ingress as a sidebar panel.
 ingress: true
 ingress_port: 8099
@@ -35,6 +37,7 @@ options:
       preset: "co_t4"
       device_class: "carbon_monoxide"
   sample_rate: 44100
+  device_index: -1
   hold_seconds: 30
   debug: false
 schema:
