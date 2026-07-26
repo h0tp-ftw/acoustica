@@ -2,6 +2,6 @@
 acoustic-engine[pyaudio] @ git+https://github.com/h0tp-ftw/acoustic-engine.git@086e1977fa9a2fe9e538e080d3ad903ed3421940
 
 # Ingress tuner server. Transitive versions are locked in constraints.txt.
-fastapi==0.124.4
+fastapi==0.140.0
 uvicorn==0.33.0
 python-multipart==0.0.27
