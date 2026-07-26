@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from acoustic_engine.input.listener import list_input_devices
+from acoustic_engine.input.listener import AudioListener, list_input_devices
 from acoustic_engine.parallel_engine import ParallelEngine
 from acoustic_engine.profiles import load_profiles_from_yaml
 
@@ -45,6 +45,24 @@ class _DropMatcherHeartbeat(logging.Filter):
         return "evaluating" not in record.getMessage().lower()
 
 
+def _probe_audio_settings(audio_config) -> tuple[bool, str | None]:
+    """Open and close a candidate microphone before committing its options."""
+
+    listener = AudioListener(audio_config, lambda _chunk: None)
+    try:
+        if not listener.setup():
+            return False, "The selected microphone could not be opened"
+        return True, None
+    except Exception as exc:
+        logger.warning("Microphone preflight failed: %s", exc)
+        return False, str(exc)
+    finally:
+        try:
+            listener.cleanup()
+        except Exception:
+            logger.debug("Microphone preflight cleanup failed", exc_info=True)
+
+
 class DetectorApp:
     """Own the engine, Home Assistant bridge, and local control plane."""
 
@@ -55,11 +73,13 @@ class DetectorApp:
         bridge_factory: Callable = HABridge,
         control_server_factory: Callable = ControlServer,
         device_lister: Callable = list_input_devices,
+        audio_probe: Callable = _probe_audio_settings,
     ) -> None:
         self._engine_factory = engine_factory
         self._bridge_factory = bridge_factory
         self._control_server_factory = control_server_factory
         self._device_lister = device_lister
+        self._audio_probe = audio_probe
         self._condition = threading.Condition()
         self._reload_lock = threading.Lock()
 
@@ -71,10 +91,17 @@ class DetectorApp:
         self._pending_config: AppConfig | None = None
         self._pending_engine = None
         self._reload_requested = False
+        self._reload_preparing = False
+        self._resume_current = False
+        self._rollback_config: AppConfig | None = None
+        self._rollback_engine = None
+        self._rollback_options: dict[str, object] | None = None
+        self._rollback_timer: threading.Timer | None = None
         self._shutdown = False
         self._generation = 0
         self._runtime_state = "starting"
         self._last_detection: dict[str, str] | None = None
+        self._last_error: str | None = None
 
     def setup(self) -> bool:
         """Build the first runtime generation and start the local control API."""
@@ -153,7 +180,7 @@ class DetectorApp:
             engine.stop()
 
     def run(self) -> int:
-        """Run engine generations until shutdown or an unexpected audio exit."""
+        """Run engine generations until shutdown or an unrecoverable audio exit."""
 
         if self.engine is None or self.config is None:
             logger.error("Runtime is not set up")
@@ -166,20 +193,32 @@ class DetectorApp:
                     break
                 engine = self.engine
                 self._runtime_state = "listening"
+                self._condition.notify_all()
 
             logger.info("Listening on the microphone")
+            run_error: str | None = None
             try:
                 engine.start()
             except KeyboardInterrupt:
                 self._handle_signal(signal.SIGINT, None)
-            except Exception:
+            except Exception as exc:
+                run_error = str(exc) or exc.__class__.__name__
                 logger.exception("Fatal error in detection loop")
                 exit_code = 1
 
+            next_config: AppConfig | None = None
             with self._condition:
                 if self._shutdown:
                     break
+
+                while self._reload_preparing and not self._shutdown:
+                    self._condition.wait(timeout=0.5)
+                if self._shutdown:
+                    break
+
                 if self._reload_requested and self._pending_config is not None:
+                    previous_config = self.config
+                    previous_engine = self.engine
                     self.config = self._pending_config
                     self.engine = self._pending_engine
                     self._pending_config = None
@@ -188,24 +227,101 @@ class DetectorApp:
                     self._generation += 1
                     exit_code = 0
                     self._runtime_state = "starting"
+                    self._last_error = None
+                    self._rollback_config = previous_config
+                    self._rollback_engine = previous_engine
+                    self._rollback_options = (
+                        dict(previous_config.options) if previous_config is not None else None
+                    )
+                    next_config = self.config
                     if self.bridge is not None:
                         self.bridge.hold_seconds = self.config.hold_seconds
                         self.bridge.reconfigure(self.config.device_classes)
                     self._condition.notify_all()
-                    self._log_generation(self.config)
+
+                elif self._resume_current:
+                    self._resume_current = False
+                    exit_code = 0
+                    self._runtime_state = "starting"
+                    self._condition.notify_all()
                     continue
 
-                if exit_code == 0:
-                    logger.error("Audio capture loop exited unexpectedly")
-                    exit_code = 1
+            if next_config is not None:
+                self._log_generation(next_config)
+                self._arm_rollback_window(self._generation)
+                continue
+
+            reason = run_error or "Audio capture loop exited unexpectedly"
+            if self._restore_previous_generation(reason):
+                exit_code = 0
+                continue
+
+            logger.error(reason)
+            with self._condition:
+                self._last_error = reason
                 self._runtime_state = "error"
-                break
+            exit_code = 1
+            break
 
         self.cleanup()
         return exit_code
 
+    def _arm_rollback_window(self, generation: int) -> None:
+        """Keep the previous generation briefly, then discard it once stable."""
+
+        with self._condition:
+            if self._rollback_timer is not None:
+                self._rollback_timer.cancel()
+            timer = threading.Timer(10.0, self._expire_rollback, args=(generation,))
+            timer.daemon = True
+            self._rollback_timer = timer
+            timer.start()
+
+    def _expire_rollback(self, generation: int) -> None:
+        with self._condition:
+            if self._generation != generation or self._shutdown:
+                return
+            self._rollback_config = None
+            self._rollback_engine = None
+            self._rollback_options = None
+            self._rollback_timer = None
+
+    def _restore_previous_generation(self, reason: str) -> bool:
+        """Restore the prior options and engine when a new generation dies early."""
+
+        with self._condition:
+            config = self._rollback_config
+            engine = self._rollback_engine
+            options = self._rollback_options
+        if config is None or engine is None or options is None or self.bridge is None:
+            return False
+
+        if not self.bridge.persist_options(options):
+            logger.error("Could not restore previous add-on options after: %s", reason)
+            return False
+
+        with self._condition:
+            if self._rollback_timer is not None:
+                self._rollback_timer.cancel()
+                self._rollback_timer = None
+            self.config = config
+            self.engine = engine
+            self._rollback_config = None
+            self._rollback_engine = None
+            self._rollback_options = None
+            self._generation += 1
+            self._runtime_state = "recovering"
+            self._last_error = f"{reason}; restored the previous audio generation"
+            self.bridge.hold_seconds = config.hold_seconds
+            self.bridge.reconfigure(config.device_classes)
+            self._condition.notify_all()
+
+        logger.warning("%s; restored generation %d", reason, self._generation)
+        self._log_generation(config)
+        return True
+
     def request_reconfigure(self, options: dict[str, object]) -> dict[str, object]:
-        """Validate, persist, and atomically request a new engine generation."""
+        """Preflight, persist, and atomically request a new engine generation."""
 
         with self._reload_lock:
             with self._condition:
@@ -217,23 +333,54 @@ class DetectorApp:
                 raise ValueError("At least one valid detector must remain configured")
             candidate_engine = self._build_engine(candidate_config)
 
-            if self.bridge is None or not self.bridge.persist_options(options):
-                raise RuntimeError("Home Assistant could not save the add-on options")
-
             with self._condition:
-                if self._shutdown:
-                    raise RuntimeError("The detector is shutting down")
-                target_generation = self._generation + 1
-                self._pending_config = candidate_config
-                self._pending_engine = candidate_engine
-                self._reload_requested = True
-                self._runtime_state = "reloading"
+                if self._rollback_timer is not None:
+                    self._rollback_timer.cancel()
+                    self._rollback_timer = None
+                self._rollback_config = None
+                self._rollback_engine = None
+                self._rollback_options = None
+                self._reload_preparing = True
+                self._runtime_state = "validating"
                 current_engine = self.engine
 
             if current_engine is not None:
                 current_engine.stop()
 
+            probe_ok, probe_error = self._audio_probe(candidate_config.audio)
+            if not probe_ok:
+                message = probe_error or "The selected microphone could not be opened"
+                with self._condition:
+                    self._reload_preparing = False
+                    self._resume_current = True
+                    self._runtime_state = "recovering"
+                    self._last_error = message
+                    self._condition.notify_all()
+                raise RuntimeError(message)
+
+            if self.bridge is None or not self.bridge.persist_options(options):
+                with self._condition:
+                    self._reload_preparing = False
+                    self._resume_current = True
+                    self._runtime_state = "recovering"
+                    self._last_error = "Home Assistant could not save the add-on options"
+                    self._condition.notify_all()
+                raise RuntimeError("Home Assistant could not save the add-on options")
+
             with self._condition:
+                if self._shutdown:
+                    self._reload_preparing = False
+                    self._resume_current = True
+                    self._condition.notify_all()
+                    raise RuntimeError("The detector is shutting down")
+                target_generation = self._generation + 1
+                self._pending_config = candidate_config
+                self._pending_engine = candidate_engine
+                self._reload_requested = True
+                self._reload_preparing = False
+                self._runtime_state = "reloading"
+                self._condition.notify_all()
+
                 completed = self._condition.wait_for(
                     lambda: self._generation >= target_generation or self._shutdown,
                     timeout=15,
@@ -323,6 +470,7 @@ class DetectorApp:
             state = self._runtime_state
             generation = self._generation
             last_detection = self._last_detection
+            last_error = self._last_error
         detector_rows = []
         if config is not None:
             detector_rows = [
@@ -346,6 +494,7 @@ class DetectorApp:
             },
             "detectors": detector_rows,
             "last_detection": last_detection,
+            "last_error": last_error,
         }
 
     def _log_generation(self, config: AppConfig) -> None:
@@ -366,6 +515,10 @@ class DetectorApp:
             )
 
     def cleanup(self) -> None:
+        with self._condition:
+            if self._rollback_timer is not None:
+                self._rollback_timer.cancel()
+                self._rollback_timer = None
         if self.control_server is not None:
             self.control_server.stop()
         if self.bridge is not None:
