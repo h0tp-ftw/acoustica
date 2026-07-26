@@ -3,11 +3,17 @@
     "step": {
       "user": {
         "title": "Acoustica",
-        "description": "Adds the binary sensors reported by the Acoustica add-on. Make sure the add-on is installed and has started at least once, then select Submit. Sensors appear under one \"Acoustica\" device."
+        "description": "Adds the binary sensors reported by the Acoustica add-on. Use this manual flow only when automatic discovery is unavailable."
+      },
+      "hassio_confirm": {
+        "title": "Set up {name}",
+        "description": "The Acoustica add-on was discovered. Submit to create its binary sensors."
       }
     },
     "abort": {
-      "single_instance_allowed": "Already configured. Only one Acoustica instance is needed; it serves every detector from the add-on."
+      "single_instance_allowed": "Acoustica is already configured.",
+      "invalid_discovery": "The add-on sent invalid discovery information.",
+      "already_configured": "Acoustica is already configured."
     }
   }
 }
